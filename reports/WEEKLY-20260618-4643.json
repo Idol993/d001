@@ -1,0 +1,66 @@
+{
+  "report_id": "WEEKLY-20260618-4643",
+  "report_period": "20260611-20260618",
+  "stats": {
+    "period": {
+      "start": "2026-06-11 00:00:00",
+      "end": "2026-06-18 23:59:59"
+    },
+    "total_releases": 1,
+    "successful_releases": 0,
+    "failed_releases": 1,
+    "publish_success_rate": 0.0,
+    "emergency_rollback_count": 1,
+    "avg_approval_duration_minutes": 0,
+    "risk_distribution": {
+      "L1_NORMAL": 1
+    },
+    "daily_releases": {
+      "2026-06-18": 1
+    },
+    "deployment_stages": {
+      "回滚": 1,
+      "试点阶段": 4
+    },
+    "releases": [
+      {
+        "id": 1,
+        "request_id": "REL_TEST_1781776985",
+        "version": "MES_V2.5.1",
+        "risk_level": "L1_NORMAL",
+        "applicant": "张三",
+        "department": "研发部",
+        "description": "测试",
+        "change_content": "测试",
+        "status": "ROLLED_BACK",
+        "pre_check_result": null,
+        "created_at": "2026-06-18 10:03:05",
+        "updated_at": "2026-06-18 18:03:05",
+        "target_production_lines": "[\"冲压-01\", \"冲压-02\", \"焊装-01\", \"焊装-02\", \"涂装-01\", \"总装-01\"]"
+      }
+    ],
+    "rollbacks": [
+      {
+        "id": 1,
+        "request_id": "REL_TEST_1781776985",
+        "rollback_reason": "测试回滚",
+        "from_version": "MES_V2.5.1",
+        "to_version": "MES_V2.5.0",
+        "affected_lines": "[\"冲压车间-01号线\", \"冲压车间-02号线\", \"冲压车间-03号线\", \"焊接车间-01号线\", \"焊接车间-02号线\", \"涂装车间-01号线\", \"涂装车间-02号线\", \"总装车间-01号线\", \"总装车间-02号线\", \"总装车间-03号线\", \"总装车间-04号线\"]",
+        "trigger_metrics": "{}",
+        "rollback_time": "2026-06-18 18:03:05",
+        "estimated_defect_count": 22,
+        "root_cause": "{\"primary_cause\": \"测试回滚\", \"contributing_factors\": [\"需要进一步分析日志定位具体原因\"], \"suggested_fixes\": []}"
+      }
+    ]
+  },
+  "chart_paths": {
+    "risk_distribution": "e:/work/d001/reports\\charts\\WEEKLY-20260618-4643_risk_distribution.png",
+    "daily_trend": "e:/work/d001/reports\\charts\\WEEKLY-20260618-4643_daily_trend.png",
+    "success_rate": "e:/work/d001/reports\\charts\\WEEKLY-20260618-4643_success_rate.png",
+    "metrics": "e:/work/d001/reports\\charts\\WEEKLY-20260618-4643_metrics.png"
+  },
+  "pdf_path": "e:/work/d001/reports\\WEEKLY-20260618-4643_week_report.pdf",
+  "excel_path": "e:/work/d001/reports\\WEEKLY-20260618-4643_release_history.xlsx",
+  "generated_at": "2026-06-18 18:03:08"
+}

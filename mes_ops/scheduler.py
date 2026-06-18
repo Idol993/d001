@@ -315,33 +315,48 @@ class TaskScheduler:
     
     def _execute_weekly_report_task(self):
         """执行周度报表生成任务"""
-        report_generator = get_report_generator()
-        
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=7)
-        
-        logger.info(f"开始生成周度报表: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
-        
-        report_id, pdf_path, excel_path, report = report_generator.generate_weekly_report(
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        logger.info(f"周度报表生成完成: {report_id}")
-        logger.info(f"  报表ID: {report_id}")
-        logger.info(f"  PDF报告: {pdf_path}")
-        logger.info(f"  Excel报表: {excel_path}")
-        
-        self.notification.send_notification(
-            alert_level=AlertLevel.LEVEL1,
-            title=f"MES系统周度运维报表已生成",
-            content=f"报告周期: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}\n"
-                   f"报告ID: {report_id}\n"
-                   f"PDF路径: {pdf_path}\n"
-                   f"Excel路径: {excel_path}\n"
-                   f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            channels=['email', 'wechat']
-        )
+        try:
+            report_generator = get_report_generator()
+            
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=7)
+            
+            logger.info(f"开始生成周度报表: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
+            
+            result = report_generator.generate_weekly_report(
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            if not isinstance(result, tuple) or len(result) < 4:
+                logger.error(f"周度报表生成失败：返回值格式异常，期望4个元素，实际得到 {type(result).__name__} (长度={len(result) if isinstance(result, (tuple, list)) else 'N/A'})")
+                return
+            
+            report_id, pdf_path, excel_path, report = result
+            
+            logger.info(f"周度报表生成完成: {report_id}")
+            logger.info(f"  报表ID: {report_id}")
+            logger.info(f"  PDF报告: {pdf_path}")
+            logger.info(f"  Excel报表: {excel_path}")
+            
+            try:
+                self.notification.send_notification(
+                    alert_level=AlertLevel.LEVEL1,
+                    title=f"MES系统周度运维报表已生成",
+                    content=f"报告周期: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}\n"
+                           f"报告ID: {report_id}\n"
+                           f"PDF路径: {pdf_path}\n"
+                           f"Excel路径: {excel_path}\n"
+                           f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    channels=['email', 'wechat']
+                )
+            except Exception as e:
+                logger.warning(f"周度报表通知发送失败（不影响任务本身）: {e}")
+                
+        except Exception as e:
+            logger.error(f"周度报表任务执行失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def _execute_data_sync_task(self):
         """执行数据同步任务"""
@@ -385,30 +400,65 @@ class TaskScheduler:
     
     def _execute_audit_verify_task(self):
         """执行审计日志完整性校验任务"""
-        is_valid, error_msg = self.audit_logger.verify_chain()
-        
-        if not is_valid:
-            self.notification.send_notification(
-                alert_level=AlertLevel.LEVEL3,
-                title=f"审计日志完整性校验失败【严重】",
-                content=f"审计日志哈希链校验失败，数据可能被篡改！\n"
-                       f"错误信息: {error_msg}\n"
-                       f"校验时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                channels=['email', 'wechat', 'dingtalk']
-            )
-            logger.error(f"审计日志校验失败: {error_msg}")
-        else:
-            logger.info("审计日志完整性校验通过")
+        try:
+            result = self.audit_logger.verify_chain()
+            
+            if not isinstance(result, tuple) or len(result) < 2:
+                logger.error(f"审计日志校验失败：返回值格式异常，期望2个元素的元组，实际得到 {type(result).__name__}")
+                return
+            
+            is_valid, error_msg = result
+            
+            if not is_valid:
+                logger.error(f"审计日志校验失败: {error_msg if error_msg else '未提供详细错误信息'}")
+                try:
+                    self.notification.send_notification(
+                        alert_level=AlertLevel.LEVEL3,
+                        title=f"审计日志完整性校验失败【严重】",
+                        content=f"审计日志哈希链校验失败，数据可能被篡改！\n"
+                               f"错误信息: {error_msg if error_msg else '未提供详细错误信息'}\n"
+                               f"校验时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                        channels=['email', 'wechat', 'dingtalk']
+                    )
+                except Exception as e:
+                    logger.warning(f"审计日志校验告警通知发送失败（不影响任务本身）: {e}")
+            else:
+                logger.info("审计日志完整性校验通过")
+                
+        except Exception as e:
+            logger.error(f"审计日志完整性校验任务执行失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def _execute_approval_timeout_task(self):
         """执行审批超时检查任务"""
-        from .approval import ApprovalManager
-        
-        approval_manager = ApprovalManager()
-        timeout_count = approval_manager.check_all_timeout()
-        
-        if timeout_count > 0:
-            logger.info(f"审批超时检查完成，共处理 {timeout_count} 个超时审批")
+        try:
+            from .approval import get_approval_manager
+            
+            approval_manager = get_approval_manager()
+            
+            if not hasattr(approval_manager, 'check_all_timeout'):
+                logger.warning("审批超时检查方法 check_all_timeout 不存在，跳过检查")
+                return
+            
+            timeout_count = approval_manager.check_all_timeout()
+            
+            if timeout_count is None:
+                timeout_count = 0
+                
+            if not isinstance(timeout_count, int):
+                logger.warning(f"审批超时检查返回值格式异常，期望int，实际为 {type(timeout_count).__name__}，已按0处理")
+                timeout_count = 0
+            
+            if timeout_count > 0:
+                logger.info(f"审批超时检查完成，共标记 {timeout_count} 个超时审批")
+            else:
+                logger.info(f"审批超时检查完成，没有发现超时审批")
+                
+        except Exception as e:
+            logger.error(f"审批超时检查任务执行失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def run_task_manually(self, task_id: str, operator: str = 'system') -> bool:
         """手动执行任务
