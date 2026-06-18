@@ -1,0 +1,270 @@
+mes_ops_system:
+  system_name: "汽车零部件工厂MES生产执行系统运维管理平台"
+  version: "1.0.0"
+  environment: "production"
+  
+  time_zone: "Asia/Shanghai"
+  date_format: "%Y-%m-%d %H:%M:%S"
+
+database:
+  type: "sqlite"
+  host: "localhost"
+  port: 5432
+  name: "mes_ops.db"
+  user: "mes_admin"
+  password: "mes_password"
+  connection_pool_size: 20
+  max_overflow: 10
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  socket_timeout: 5
+  socket_connect_timeout: 5
+
+pre_check:
+  test_coverage:
+    min_unit_test_coverage: 85.0
+    min_integration_test_coverage: 70.0
+    jenkins_url: "http://jenkins.factory.com"
+    allure_report_path: "/allure-reports"
+    api_timeout: 30
+
+  code_security:
+    sonarqube_url: "http://sonarqube.factory.com"
+    max_critical_vulnerabilities: 0
+    max_major_vulnerabilities: 3
+    max_code_smells: 50
+    max_duplication_rate: 5.0
+    api_timeout: 30
+
+  plc_interface:
+    connection_timeout: 5
+    read_timeout: 10
+    test_tag_address: "ns=2;s=Production.Line1.Status"
+    expected_value: "RUNNING"
+    plc_devices:
+      - name: "冲压车间PLC-01"
+        endpoint: "opc.tcp://192.168.1.101:4840"
+        workshop: "冲压车间"
+      - name: "焊接车间PLC-02"
+        endpoint: "opc.tcp://192.168.1.102:4840"
+        workshop: "焊接车间"
+      - name: "涂装车间PLC-03"
+        endpoint: "opc.tcp://192.168.1.103:4840"
+        workshop: "涂装车间"
+      - name: "总装车间PLC-04"
+        endpoint: "opc.tcp://192.168.1.104:4840"
+        workshop: "总装车间"
+
+  wms_system:
+    health_check_url: "http://wms.factory.com/api/health"
+    connection_timeout: 5
+    read_timeout: 10
+    expected_status: "UP"
+    mq_broker_url: "amqp://mq.factory.com:5672"
+    mq_username: "mes_user"
+    mq_password: "mes_mq_pass"
+
+approval:
+  risk_levels:
+    L1_NORMAL:
+      name: "常规版本"
+      description: "生产流程优化、功能迭代"
+      required_approvers: ["production_manager", "quality_manager", "ops_manager"]
+      timeout_hours: 24
+    L2_URGENT:
+      name: "紧急版本"
+      description: "数据漏洞修复、安全补丁"
+      required_approvers: ["production_manager", "quality_manager", "ops_manager", "factory_director"]
+      timeout_hours: 4
+
+  approvers:
+    production_manager:
+      name: "张生产"
+      email: "zhangsc@factory.com"
+      phone: "13800138001"
+      role: "生产负责人"
+    quality_manager:
+      name: "李质量"
+      email: "lizl@factory.com"
+      phone: "13800138002"
+      role: "质量经理"
+    ops_manager:
+      name: "王运维"
+      email: "wangyw@factory.com"
+      phone: "13800138003"
+      role: "运维审批人"
+    factory_director:
+      name: "赵总监"
+      email: "zhaozj@factory.com"
+      phone: "13800138004"
+      role: "工厂总监"
+
+deployment:
+  version_repository: "e:/work/mes_versions"
+  backup_directory: "e:/work/mes_backups"
+  max_backup_count: 10
+  
+  gray_strategy:
+    stages:
+      - stage: 1
+        name: "试点阶段"
+        traffic_ratio: 10
+        duration_minutes: 30
+        production_lines: ["冲压车间-01号线"]
+      - stage: 2
+        name: "扩展阶段"
+        traffic_ratio: 30
+        duration_minutes: 60
+        production_lines: ["冲压车间-01号线", "冲压车间-02号线", "焊接车间-01号线"]
+      - stage: 3
+        name: "半量阶段"
+        traffic_ratio: 50
+        duration_minutes: 120
+        production_lines: ["冲压车间-01号线", "冲压车间-02号线", "焊接车间-01号线", "焊接车间-02号线", "涂装车间-01号线"]
+      - stage: 4
+        name: "全量阶段"
+        traffic_ratio: 100
+        duration_minutes: 0
+        production_lines: ["all"]
+
+  workshops:
+    - name: "冲压车间"
+      lines: ["冲压车间-01号线", "冲压车间-02号线", "冲压车间-03号线"]
+      output_rate_per_hour: 120
+      defect_rate: 0.015
+    - name: "焊接车间"
+      lines: ["焊接车间-01号线", "焊接车间-02号线"]
+      output_rate_per_hour: 100
+      defect_rate: 0.02
+    - name: "涂装车间"
+      lines: ["涂装车间-01号线", "涂装车间-02号线"]
+      output_rate_per_hour: 80
+      defect_rate: 0.025
+    - name: "总装车间"
+      lines: ["总装车间-01号线", "总装车间-02号线", "总装车间-03号线", "总装车间-04号线"]
+      output_rate_per_hour: 60
+      defect_rate: 0.018
+
+monitor:
+  check_interval_seconds: 300
+  metrics:
+    work_order_error_rate:
+      name: "工单上报报错率"
+      unit: "%"
+      threshold: 2.0
+      weight: 0.4
+    data_collection_latency:
+      name: "设备数据采集响应延迟"
+      unit: "ms"
+      threshold: 500.0
+      weight: 0.35
+    process_param_anomalies:
+      name: "生产工艺参数异常次数"
+      unit: "次/5min"
+      threshold: 5
+      weight: 0.25
+  
+  auto_rollback:
+    enabled: true
+    consecutive_failures: 2
+    rollback_timeout_seconds: 300
+
+  data_sources:
+    work_order_api: "http://mes.factory.com/api/workorders/metrics"
+    plc_metrics_api: "http://mes.factory.com/api/plc/metrics"
+    process_api: "http://mes.factory.com/api/process/metrics"
+
+notification:
+  email:
+    smtp_server: "smtp.factory.com"
+    smtp_port: 465
+    use_ssl: true
+    username: "mes_ops@factory.com"
+    password: "notification_pass"
+    sender_name: "MES运维平台"
+  
+  webhook:
+    wechat_work:
+      url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
+      enabled: true
+    dingtalk:
+      url: "https://oapi.dingtalk.com/robot/send?access_token=xxxx"
+      enabled: false
+  
+  escalation_levels:
+    LEVEL1:
+      name: "一般告警"
+      channels: ["wechat_work"]
+      recipients: ["ops_manager"]
+    LEVEL2:
+      name: "重要告警"
+      channels: ["wechat_work", "email"]
+      recipients: ["ops_manager", "production_manager"]
+    LEVEL3:
+      name: "紧急告警"
+      channels: ["wechat_work", "email"]
+      recipients: ["ops_manager", "production_manager", "quality_manager", "factory_director"]
+
+fallback:
+  edge_gateway:
+    buffer_size_mb: 1024
+    max_offline_hours: 8
+    data_path: "e:/work/edge_data"
+  
+  local_database:
+    path: "e:/work/fallback/mes_fallback.db"
+    auto_sync: true
+    sync_interval_seconds: 60
+  
+  manual_mode:
+    excel_template_path: "e:/work/templates/manual_production_template.xlsx"
+    data_reconciliation_hours: 2
+
+scheduler:
+  weekly_report:
+    enabled: true
+    day_of_week: "wed"
+    hour: 2
+    minute: 0
+    timezone: "Asia/Shanghai"
+  
+  data_cleanup:
+    enabled: true
+    retention_days: 365
+    hour: 3
+    minute: 0
+
+logging:
+  level: "INFO"
+  log_dir: "e:/work/d001/logs"
+  max_bytes: 10485760
+  backup_count: 20
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(audit_id)s - %(user)s - %(operation)s - %(message)s"
+
+audit:
+  log_operations:
+    - "version_deploy"
+    - "version_rollback"
+    - "permission_change"
+    - "monitor_alert"
+    - "manual_approval"
+    - "emergency_drill"
+    - "system_config"
+  hash_chain: true
+  archive_path: "e:/work/audit_archives"
+  archive_days: 90
+
+reporting:
+  output_dir: "e:/work/d001/reports"
+  charts:
+    dpi: 300
+    figure_size: [12, 8]
+    style: "ggplot"
+  pdf:
+    title_font_size: 16
+    content_font_size: 10
+    page_size: "A4"
