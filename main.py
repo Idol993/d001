@@ -737,10 +737,17 @@ class MESReleaseSystem:
         print(f"PDF路径: {pdf_path}")
         print(f"Excel路径: {excel_path}")
         
+        # 从 stats 中获取统计数据，确保与 PDF/Excel 中的一致
+        stats = report.get('stats', {})
+        success_rate = stats.get('publish_success_rate', 0)
+        rollback_count = stats.get('emergency_rollback_count', 0)
+        avg_approval_minutes = stats.get('avg_approval_duration_minutes', 0)
+        avg_approval_hours = round(avg_approval_minutes / 60, 1) if avg_approval_minutes else 0
+        
         print(f"\n统计摘要:")
-        print(f"  发布成功率: {report.get('release_success_rate', 0):.1f}%")
-        print(f"  紧急回滚次数: {report.get('emergency_rollback_count', 0)} 次")
-        print(f"  平均审批时长: {report.get('avg_approval_hours', 0):.1f} 小时")
+        print(f"  发布成功率: {success_rate:.1f}%")
+        print(f"  紧急回滚次数: {rollback_count} 次")
+        print(f"  平均审批时长: {avg_approval_hours:.1f} 小时")
         
         print("=" * 60 + "\n")
         
@@ -773,7 +780,7 @@ class MESReleaseSystem:
         return records
     
     def export_records(self, export_type: str, output_path: str,
-                       start_date: datetime = None, end_date: datetime = None) -> str:
+                       start_date: datetime = None, end_date: datetime = None) -> Dict[str, Any]:
         """
         导出记录
         
@@ -784,7 +791,7 @@ class MESReleaseSystem:
             end_date: 结束日期
             
         Returns:
-            导出文件路径
+            导出结果字典
         """
         if start_date is None:
             start_date = datetime.now() - timedelta(days=30)
@@ -798,7 +805,7 @@ class MESReleaseSystem:
         print(f"时间范围: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
         print(f"输出路径: {output_path}")
         
-        file_path = self.query_manager.export_records(
+        result = self.query_manager.export_records(
             export_type=export_type,
             output_path=output_path,
             start_date=start_date,
@@ -806,19 +813,38 @@ class MESReleaseSystem:
             operator='system'
         )
         
-        print(f"\n✅ 导出完成: {file_path}")
+        if export_type == 'all' and isinstance(result, dict):
+            export_files = result.get('export_files', {})
+            record_counts = result.get('record_counts', {})
+            
+            print(f"\n✅ 导出完成！共导出 {len(export_files)} 个文件：")
+            print(f"\n导出内容:")
+            
+            file_labels = {
+                'releases': '发布申请记录',
+                'approvals': '审批流程记录',
+                'rollbacks': '故障处置记录',
+                'production_lines': '产线停机记录'
+            }
+            
+            for key, label in file_labels.items():
+                if key in export_files:
+                    count = record_counts.get(key, 0)
+                    print(f"  📄 {label} ({count}条):")
+                    print(f"     {export_files[key]}")
+            
+            print("=" * 60 + "\n")
+            
+            logger.info(f"记录已导出: {len(export_files)} 个文件")
+            for key, path in export_files.items():
+                logger.info(f"  - {file_labels.get(key, key)}: {path}")
+        else:
+            file_path = result if isinstance(result, str) else str(result)
+            print(f"\n✅ 导出完成: {file_path}")
+            print("=" * 60 + "\n")
+            logger.info(f"记录已导出: {file_path}")
         
-        if export_type == 'all':
-            print("\n导出内容包含:")
-            print("  - 发布申请记录")
-            print("  - 审批流程记录")
-            print("  - 故障处置记录")
-            print("  - 产线停机记录")
-        
-        print("=" * 60 + "\n")
-        
-        logger.info(f"记录已导出: {file_path}")
-        return file_path
+        return result
     
     def test_data_fallback(self) -> Dict[str, Any]:
         """
@@ -880,10 +906,29 @@ class MESReleaseSystem:
         print("【演示】MES系统版本自动化发布完整流程")
         print("=" * 80)
         
+        # 先确保有上一稳定版本
+        print("\n0. 初始化环境")
+        print("-" * 40)
+        stable_version = "MES_V2.5.0"
+        new_version = "MES_V2.5.1"
+        self.deployment_engine.register_mock_version(stable_version, is_stable=True)
+        current_stable = self.deployment_engine.get_stable_version()
+        print(f"   当前稳定版本: {current_stable['version'] if current_stable else '无'}")
+        print(f"   待发布新版本: {new_version}")
+        
+        # 设置产线当前版本为稳定版本
+        self.db.execute('''
+            UPDATE production_line_status 
+            SET current_version = ?, auto_production_enabled = 1,
+                fallback_mode = 'NORMAL'
+        ''', (stable_version,))
+        print(f"   已设置产线当前版本为: {stable_version}")
+        time.sleep(0.5)
+        
         print("\n1. 提交版本发布申请")
         print("-" * 40)
         request_id = self.submit_release_request(
-            version="MES_V2.5.1",
+            version=new_version,
             risk_level=RiskLevel.L1_NORMAL,
             applicant="张三",
             department="研发部",
@@ -1103,12 +1148,17 @@ def main():
         
         elif args.command == 'export':
             os.makedirs(args.output, exist_ok=True)
-            output_path = os.path.join(args.output, f"export_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx")
-            file_path = system.export_records(
+            result = system.export_records(
                 export_type=args.export_type,
-                output_path=output_path
+                output_path=args.output
             )
-            print(f"导出完成: {file_path}")
+            if isinstance(result, dict) and 'export_files' in result:
+                files = result.get('export_files', {})
+                print(f"导出完成，共 {len(files)} 个文件：")
+                for key, path in files.items():
+                    print(f"  {path}")
+            else:
+                print(f"导出完成: {result}")
     
     finally:
         if args.command in ['demo', 'service', 'report', 'drill']:

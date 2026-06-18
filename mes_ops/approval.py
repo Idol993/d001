@@ -128,7 +128,10 @@ class ApprovalWorkflow:
             status="SUCCESS"
         )
         
-        all_approved, pending_count = self._check_approval_status()
+        all_approved, pending_count, has_rejected = self._check_approval_status()
+        
+        if has_rejected:
+            return True, f"审批已被拒绝，流程终止"
         
         if all_approved:
             self.db.execute('''
@@ -142,7 +145,7 @@ class ApprovalWorkflow:
         
         return False, f"审批通过，仍有 {pending_count} 人待审批"
     
-    @audit_operation(OperationType.MANUAL_APPROVAL, lambda args: args[2])
+    @audit_operation(OperationType.MANUAL_APPROVAL, lambda *args, **kwargs: kwargs.get('operator', args[2] if len(args) > 2 else 'system'))
     def reject(self, approver_role: str, operator: str, 
                comment: str) -> Tuple[bool, str]:
         """
@@ -192,8 +195,12 @@ class ApprovalWorkflow:
         
         return True, f"审批已拒绝，流程终止"
     
-    def _check_approval_status(self) -> Tuple[bool, int]:
-        """检查审批状态"""
+    def _check_approval_status(self) -> Tuple[bool, int, bool]:
+        """检查审批状态
+        
+        Returns:
+            (是否全部通过, 待审批数量, 是否被拒绝)
+        """
         records = self.db.query('''
             SELECT approver_role, approval_status 
             FROM approval_records 
@@ -202,15 +209,23 @@ class ApprovalWorkflow:
         
         approved_count = 0
         pending_count = 0
+        has_rejected = False
         
         for record in records:
             if record['approval_status'] == ApprovalStatus.APPROVED.value:
                 approved_count += 1
             elif record['approval_status'] == ApprovalStatus.PENDING.value:
                 pending_count += 1
+            elif record['approval_status'] == ApprovalStatus.REJECTED.value:
+                has_rejected = True
         
         all_approved = (approved_count == len(self.required_approvers))
-        return all_approved, pending_count
+        return all_approved, pending_count, has_rejected
+    
+    def is_rejected(self) -> bool:
+        """检查是否被拒绝"""
+        _, _, has_rejected = self._check_approval_status()
+        return has_rejected
     
     def check_timeout(self) -> bool:
         """检查审批是否超时"""
@@ -259,7 +274,7 @@ class ApprovalWorkflow:
             ORDER BY ar.id
         ''', (self.request_id,))
         
-        all_approved, pending_count = self._check_approval_status()
+        all_approved, pending_count, has_rejected = self._check_approval_status()
         
         return {
             'request_id': self.request_id,
@@ -268,6 +283,7 @@ class ApprovalWorkflow:
             'total_approvers': len(self.required_approvers),
             'approved_count': sum(1 for r in records if r['approval_status'] == ApprovalStatus.APPROVED.value),
             'pending_count': pending_count,
+            'has_rejected': has_rejected,
             'all_approved': all_approved,
             'timeout_hours': self.timeout_hours,
             'approval_details': records
@@ -338,7 +354,10 @@ class ApprovalWorkflow:
             status="SUCCESS"
         )
         
-        all_approved, pending_count = self._check_approval_status()
+        all_approved, pending_count, has_rejected = self._check_approval_status()
+        
+        if has_rejected:
+            return True, f"审批已被拒绝，流程终止"
         
         if all_approved:
             self.db.execute('''
@@ -354,7 +373,7 @@ class ApprovalWorkflow:
     
     def is_approved(self) -> bool:
         """检查是否所有审批都已通过"""
-        all_approved, _ = self._check_approval_status()
+        all_approved, _, _ = self._check_approval_status()
         return all_approved
 
 

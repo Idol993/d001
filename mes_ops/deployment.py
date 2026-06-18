@@ -122,6 +122,71 @@ class VersionManager:
         return self.db.query('''
             SELECT * FROM version_snapshots ORDER BY id DESC LIMIT ?
         ''', (limit,))
+    
+    def register_mock_version(self, version: str, is_stable: bool = False) -> Dict[str, Any]:
+        """
+        注册模拟版本（用于演示）
+        
+        Args:
+            version: 版本号
+            is_stable: 是否标记为稳定版本
+            
+        Returns:
+            版本信息
+        """
+        existing = self.get_version(version)
+        if existing:
+            if is_stable:
+                self.set_stable_version(version)
+            return existing
+        
+        md5 = self._generate_mock_md5(version)
+        package_path = self.version_repo / version / f"{version}.tar.gz"
+        package_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        self.db.execute('''
+            INSERT INTO version_snapshots 
+            (version, package_path, md5_checksum, is_stable, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            version, str(package_path), md5, is_stable,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        ))
+        
+        if is_stable:
+            self.db.execute('''
+                UPDATE version_snapshots SET is_stable = 0 WHERE version != ?
+            ''', (version,))
+        
+        logger.info(f"已注册模拟版本: {version}, 稳定版本: {is_stable}")
+        
+        return self.get_version(version)
+    
+    def set_stable_version(self, version: str) -> bool:
+        """
+        设置指定版本为稳定版本
+        
+        Args:
+            version: 版本号
+            
+        Returns:
+            是否成功
+        """
+        version_info = self.get_version(version)
+        if not version_info:
+            logger.error(f"版本不存在，无法设置为稳定版本: {version}")
+            return False
+        
+        self.db.execute('''
+            UPDATE version_snapshots SET is_stable = 0 WHERE is_stable = 1
+        ''')
+        
+        self.db.execute('''
+            UPDATE version_snapshots SET is_stable = 1 WHERE version = ?
+        ''', (version,))
+        
+        logger.info(f"已设置稳定版本: {version}")
+        return True
 
 
 class GrayDeploymentEngine:
@@ -718,6 +783,18 @@ class GrayDeploymentEngine:
             'current_stage': None,
             'status': DeploymentStatus.DEPLOYING.value
         }
+    
+    def register_mock_version(self, version: str, is_stable: bool = False) -> Dict[str, Any]:
+        """便捷方法：注册模拟版本"""
+        return self.version_manager.register_mock_version(version, is_stable)
+    
+    def set_stable_version(self, version: str) -> bool:
+        """便捷方法：设置稳定版本"""
+        return self.version_manager.set_stable_version(version)
+    
+    def get_stable_version(self) -> Optional[Dict[str, Any]]:
+        """便捷方法：获取当前稳定版本"""
+        return self.version_manager.get_stable_version()
     
     def get_current_stage(self, request_id: str) -> Optional[DeploymentStage]:
         """

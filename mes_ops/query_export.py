@@ -341,7 +341,8 @@ class QueryExportManager:
     @audit_operation(OperationType.SYSTEM_CONFIG, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def export_to_excel(self, operator: str, data_type: str,
                         records: List[Dict[str, Any]],
-                        filename: str = None) -> str:
+                        filename: str = None,
+                        output_dir: str = None) -> str:
         """
         批量导出数据到Excel
         
@@ -350,6 +351,7 @@ class QueryExportManager:
             data_type: 数据类型 (releases/approvals/rollbacks/audits/drills)
             records: 要导出的数据记录
             filename: 文件名（可选）
+            output_dir: 输出目录（可选，默认使用配置的导出目录）
             
         Returns:
             导出文件路径
@@ -358,7 +360,9 @@ class QueryExportManager:
             timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
             filename = f"{data_type}_{timestamp}.xlsx"
         
-        export_path = os.path.join(self.export_dir, filename)
+        target_dir = output_dir or self.export_dir
+        os.makedirs(target_dir, exist_ok=True)
+        export_path = os.path.join(target_dir, filename)
         
         wb = Workbook()
         
@@ -503,22 +507,28 @@ class QueryExportManager:
     
     def export_records(self, export_type: str, output_path: str,
                         start_date: datetime = None, end_date: datetime = None,
-                        operator: str = 'system') -> str:
+                        operator: str = 'system') -> Dict[str, Any]:
         """
         便捷方法：导出记录到Excel（兼容main.py调用）
         
         Args:
             export_type: 导出类型 (all/releases/approvals/rollbacks/audits/drills/production_lines)
-            output_path: 输出文件路径
+            output_path: 输出文件路径或目录
             start_date: 开始日期
             end_date: 结束日期
             operator: 操作人
             
         Returns:
-            导出文件路径
+            导出结果字典，包含所有导出的文件路径
         """
         import os
-        output_dir = os.path.dirname(output_path) if os.path.dirname(output_path) else '.'
+        
+        # 确定输出目录
+        if os.path.isdir(output_path) or not os.path.splitext(output_path)[1]:
+            output_dir = output_path
+        else:
+            output_dir = os.path.dirname(output_path) if os.path.dirname(output_path) else '.'
+        
         os.makedirs(output_dir, exist_ok=True)
         
         if start_date:
@@ -535,10 +545,10 @@ class QueryExportManager:
             result = self.batch_export(
                 operator=operator,
                 start_time=start_time,
-                end_time=end_time
+                end_time=end_time,
+                output_dir=output_dir
             )
-            files = list(result.get('export_files', {}).values())
-            return files[0] if files else output_path
+            return result
         else:
             query_funcs = {
                 'releases': self.query_release_records,
@@ -577,7 +587,8 @@ class QueryExportManager:
                      start_time: str = None,
                      end_time: str = None,
                      workshop: str = None,
-                     version: str = None) -> Dict[str, Any]:
+                     version: str = None,
+                     output_dir: str = None) -> Dict[str, Any]:
         """
         批量导出审批单据、故障处置、产线停机记录
         
@@ -587,6 +598,7 @@ class QueryExportManager:
             end_time: 结束时间
             workshop: 车间
             version: 版本号
+            output_dir: 输出目录（可选）
             
         Returns:
             导出结果字典
@@ -614,25 +626,29 @@ class QueryExportManager:
         if releases:
             exports['releases'] = self.export_to_excel(
                 operator, 'releases', releases,
-                f"release_records_{timestamp}.xlsx"
+                f"release_records_{timestamp}.xlsx",
+                output_dir=output_dir
             )
         
         if approvals:
             exports['approvals'] = self.export_to_excel(
                 operator, 'approvals', approvals,
-                f"approval_records_{timestamp}.xlsx"
+                f"approval_records_{timestamp}.xlsx",
+                output_dir=output_dir
             )
         
         if rollbacks:
             exports['rollbacks'] = self.export_to_excel(
                 operator, 'rollbacks', rollbacks,
-                f"rollback_records_{timestamp}.xlsx"
+                f"rollback_records_{timestamp}.xlsx",
+                output_dir=output_dir
             )
         
         if production_lines:
             exports['production_lines'] = self.export_to_excel(
                 operator, 'production_lines', production_lines,
-                f"production_line_status_{timestamp}.xlsx"
+                f"production_line_status_{timestamp}.xlsx",
+                output_dir=output_dir
             )
         
         return {
