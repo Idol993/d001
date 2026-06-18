@@ -1,0 +1,164 @@
+{
+  "report_id": "FAULT-F10823A9",
+  "generated_at": "2026-06-18 15:25:43",
+  "generated_by": "system",
+  "report_type": "工业生产故障分析报告",
+  "basic_info": {
+    "request_id": "REL_20260618152541_1781767541551",
+    "version": "MES_V2.5.1",
+    "risk_level": "L1_NORMAL",
+    "applicant": "张三",
+    "description": "生产流程优化版本",
+    "change_content": "优化工单调度算法"
+  },
+  "rollback_info": {
+    "rollback_id": 5,
+    "from_version": "MES_V2.5.1",
+    "to_version": "MES_V2.5.1",
+    "rollback_time": "2026-06-18 15:25:43",
+    "rollback_reason": "监控指标超过阈值，触发自动回滚"
+  },
+  "impact_analysis": {
+    "total_affected_lines": 11,
+    "affected_workshops": [
+      "冲压车间",
+      "焊接车间",
+      "涂装车间",
+      "总装车间"
+    ],
+    "workshop_details": {
+      "冲压车间": {
+        "lines": [
+          "冲压车间-01号线",
+          "冲压车间-02号线",
+          "冲压车间-03号线"
+        ],
+        "count": 3,
+        "output_rate": 120,
+        "defect_rate": 0.015
+      },
+      "焊接车间": {
+        "lines": [
+          "焊接车间-01号线",
+          "焊接车间-02号线"
+        ],
+        "count": 2,
+        "output_rate": 100,
+        "defect_rate": 0.02
+      },
+      "涂装车间": {
+        "lines": [
+          "涂装车间-01号线",
+          "涂装车间-02号线"
+        ],
+        "count": 2,
+        "output_rate": 80,
+        "defect_rate": 0.025
+      },
+      "总装车间": {
+        "lines": [
+          "总装车间-01号线",
+          "总装车间-02号线",
+          "总装车间-03号线",
+          "总装车间-04号线"
+        ],
+        "count": 4,
+        "output_rate": 60,
+        "defect_rate": 0.018
+      }
+    },
+    "summary": "影响 4 个车间，共 11 条产线"
+  },
+  "defect_estimate": {
+    "downtime_minutes": 60,
+    "total_estimated_output": 960,
+    "total_estimated_defects": 15,
+    "workshop_breakdown": {
+      "冲压车间": {
+        "estimated_output": 360,
+        "estimated_defects": 3,
+        "lines": [
+          "冲压车间-01号线",
+          "冲压车间-02号线",
+          "冲压车间-03号线"
+        ]
+      },
+      "焊接车间": {
+        "estimated_output": 200,
+        "estimated_defects": 4,
+        "lines": [
+          "焊接车间-01号线",
+          "焊接车间-02号线"
+        ]
+      },
+      "涂装车间": {
+        "estimated_output": 160,
+        "estimated_defects": 4,
+        "lines": [
+          "涂装车间-01号线",
+          "涂装车间-02号线"
+        ]
+      },
+      "总装车间": {
+        "estimated_output": 240,
+        "estimated_defects": 4,
+        "lines": [
+          "总装车间-01号线",
+          "总装车间-02号线",
+          "总装车间-03号线",
+          "总装车间-04号线"
+        ]
+      }
+    },
+    "confidence": "中等",
+    "note": "基于历史平均不良率估算，实际数量以现场盘点为准"
+  },
+  "root_cause_analysis": {
+    "primary_cause": "监控指标超过阈值，触发自动回滚",
+    "primary_cause_category": "未知原因",
+    "contributing_factors": [
+      "需要进一步分析日志和代码变更定位具体根因"
+    ],
+    "evidence": [],
+    "suggested_fixes": [],
+    "prevention_measures": [
+      "在测试环境增加边界条件测试覆盖率",
+      "上线前进行性能压测，验证系统负载能力",
+      "建立配置变更审核机制，关键配置需双人复核",
+      "增加灰度阶段监控力度，延长观察时间"
+    ]
+  },
+  "action_taken": [
+    {
+      "action": "自动版本回滚",
+      "time": "2026-06-18 15:25:43",
+      "result": "已完成"
+    },
+    {
+      "action": "产线自动生产权限锁定",
+      "time": "2026-06-18 15:25:43",
+      "result": "已完成",
+      "affected_lines": [
+        "冲压车间-01号线",
+        "冲压车间-02号线",
+        "冲压车间-03号线",
+        "焊接车间-01号线",
+        "焊接车间-02号线",
+        "涂装车间-01号线",
+        "涂装车间-02号线",
+        "总装车间-01号线",
+        "总装车间-02号线",
+        "总装车间-03号线",
+        "总装车间-04号线"
+      ]
+    }
+  ],
+  "next_steps": [
+    "技术团队排查代码问题，修复BUG",
+    "质量团队对已生产产品进行抽检",
+    "生产团队评估是否需要调整生产计划",
+    "修复验证通过后恢复产线自动生产",
+    "重启全车间数据监控"
+  ],
+  "notification_sent": false
+}

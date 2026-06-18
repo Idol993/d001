@@ -32,8 +32,10 @@ class QueryExportManager:
         os.makedirs(self.export_dir, exist_ok=True)
     
     def query_release_records(self, 
-                              start_time: str = None,
-                              end_time: str = None,
+                              start_time = None,
+                              end_time = None,
+                              start_date = None,
+                              end_date = None,
                               workshop: str = None,
                               version: str = None,
                               status: str = None,
@@ -44,8 +46,10 @@ class QueryExportManager:
         多条件组合查询发布记录
         
         Args:
-            start_time: 上线发布开始时间
-            end_time: 上线发布结束时间
+            start_time: 上线发布开始时间（或start_date）
+            end_time: 上线发布结束时间（或end_date）
+            start_date: 上线发布开始日期（兼容参数）
+            end_date: 上线发布结束日期（兼容参数）
             workshop: 生产车间模块
             version: MES系统版本号
             status: 发布状态
@@ -56,6 +60,16 @@ class QueryExportManager:
         Returns:
             发布记录列表
         """
+        if start_date and not start_time:
+            start_time = start_date
+        if end_date and not end_time:
+            end_time = end_date
+        
+        if isinstance(start_time, datetime):
+            start_time = start_time.strftime('%Y-%m-%d %H:%M:%S')
+        if isinstance(end_time, datetime):
+            end_time = end_time.strftime('%Y-%m-%d %H:%M:%S')
+        
         sql = '''
             SELECT DISTINCT rr.*, 
                    pr.check_result as pre_check_status,
@@ -324,7 +338,7 @@ class QueryExportManager:
         logger.info(f"查询到 {len(results)} 条演练记录")
         return results
     
-    @audit_operation(OperationType.SYSTEM_CONFIG, lambda args: args[1])
+    @audit_operation(OperationType.SYSTEM_CONFIG, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def export_to_excel(self, operator: str, data_type: str,
                         records: List[Dict[str, Any]],
                         filename: str = None) -> str:
@@ -486,6 +500,78 @@ class QueryExportManager:
         logger.info(f"已导出 {len(records)} 条 {data_type} 记录到 {export_path}")
         
         return export_path
+    
+    def export_records(self, export_type: str, output_path: str,
+                        start_date: datetime = None, end_date: datetime = None,
+                        operator: str = 'system') -> str:
+        """
+        便捷方法：导出记录到Excel（兼容main.py调用）
+        
+        Args:
+            export_type: 导出类型 (all/releases/approvals/rollbacks/audits/drills/production_lines)
+            output_path: 输出文件路径
+            start_date: 开始日期
+            end_date: 结束日期
+            operator: 操作人
+            
+        Returns:
+            导出文件路径
+        """
+        import os
+        output_dir = os.path.dirname(output_path) if os.path.dirname(output_path) else '.'
+        os.makedirs(output_dir, exist_ok=True)
+        
+        if start_date:
+            start_time = start_date.strftime('%Y-%m-%d 00:00:00')
+        else:
+            start_time = None
+            
+        if end_date:
+            end_time = end_date.strftime('%Y-%m-%d 23:59:59')
+        else:
+            end_time = None
+        
+        if export_type == 'all':
+            result = self.batch_export(
+                operator=operator,
+                start_time=start_time,
+                end_time=end_time
+            )
+            files = list(result.get('export_files', {}).values())
+            return files[0] if files else output_path
+        else:
+            query_funcs = {
+                'releases': self.query_release_records,
+                'approvals': self.query_approval_records,
+                'rollbacks': self.query_rollback_records,
+                'drills': self.query_drill_records,
+                'production_lines': self.query_production_line_status,
+                'audits': self.query_audit_logs
+            }
+            
+            query_func = query_funcs.get(export_type)
+            if query_func:
+                records = query_func(start_time=start_time, end_time=end_time)
+            else:
+                records = []
+            
+            return self._do_export(
+                operator=operator,
+                data_type=export_type,
+                records=records,
+                output_path=output_path
+            )
+    
+    def _do_export(self, operator: str, data_type: str,
+                      records: List[Dict[str, Any]],
+                      output_path: str) -> str:
+        """实际导出Excel"""
+        return self.export_to_excel(
+            operator=operator,
+            data_type=data_type,
+            records=records,
+            filename=os.path.basename(output_path)
+        )
     
     def batch_export(self, operator: str,
                      start_time: str = None,

@@ -7,7 +7,7 @@ import json
 import time
 import uuid
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .database import get_db
 from .logger import get_logger
@@ -110,7 +110,7 @@ class EmergencyDrillManager:
         """生成演练ID"""
         return f"DRILL-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:4].upper()}"
     
-    @audit_operation(OperationType.EMERGENCY_DRILL, lambda args: args[1])
+    @audit_operation(OperationType.EMERGENCY_DRILL, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def create_drill(self, operator: str, scenario_type: str,
                      drill_name: str = None,
                      target_lines: List[str] = None) -> Dict[str, Any]:
@@ -285,7 +285,7 @@ class EmergencyDrillManager:
         
         return simulation_data
     
-    @audit_operation(OperationType.EMERGENCY_DRILL, lambda args: args[1])
+    @audit_operation(OperationType.EMERGENCY_DRILL, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def execute_step(self, operator: str, drill_id: str,
                      step_index: int, manual_result: str = None) -> Dict[str, Any]:
         """
@@ -503,7 +503,7 @@ class EmergencyDrillManager:
         
         return improvements
     
-    @audit_operation(OperationType.EMERGENCY_DRILL, lambda args: args[1])
+    @audit_operation(OperationType.EMERGENCY_DRILL, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def cancel_drill(self, operator: str, drill_id: str, 
                      reason: str) -> Dict[str, Any]:
         """取消演练"""
@@ -585,6 +585,342 @@ class EmergencyDrillManager:
         params.append(limit)
         
         return self.db.query(sql, tuple(params))
+    
+    def create_scenario(self, drill_type: str, operator: str,
+                        target_lines: List[str] = None) -> Dict[str, Any]:
+        """
+        便捷方法：创建演练场景（与create_drill相同）
+        
+        Returns:
+            演练场景信息
+        """
+        result = self.create_drill(
+            operator=operator,
+            scenario_type=drill_type,
+            target_lines=target_lines
+        )
+        
+        class DrillScenarioObject:
+            def __init__(self, data):
+                self.drill_id = data['drill_id']
+                self.name = data['drill_name']
+                self.scenario_type = data['scenario_type']
+                self.target_lines = data['target_lines']
+                self.drill_plan = data['drill_plan']
+                self.data = data
+        
+        return DrillScenarioObject(result)
+    
+    def execute_drill(self, scenario_obj: Any) -> Dict[str, Any]:
+        """
+        便捷方法：自动执行完整的演练流程
+        
+        Args:
+            scenario_obj: create_scenario返回的演练场景对象
+            
+        Returns:
+            完整演练结果
+        """
+        drill_id = scenario_obj.drill_id
+        drill_plan = scenario_obj.drill_plan
+        steps = drill_plan['steps']
+        
+        print(f"\n{'='*60}")
+        print(f"开始执行应急演练: {scenario_obj.name}")
+        print(f"演练ID: {drill_id}")
+        print(f"{'='*60}")
+        
+        step_results = []
+        for i, step in enumerate(steps, 1):
+            print(f"\n步骤 {i}/{len(steps)}: {step['description']}")
+            print("-" * 60)
+            
+            try:
+                result = self.execute_step(
+                    operator="system",
+                    drill_id=drill_id,
+                    step_index=i
+                )
+                
+                step_results.append(result)
+                
+                status = "✅ 成功" if result['status'] == 'COMPLETED' else "❌ 失败"
+                print(f"  状态: {status}")
+                print(f"  耗时: {result['duration_seconds']} 秒")
+                
+                if result['result'].get('details'):
+                    details = result['result']['details']
+                    if isinstance(details, dict):
+                        for key, value in details.items():
+                            if not isinstance(value, (list, dict)):
+                                print(f"  {key}: {value}")
+                
+                time.sleep(0.5)
+                
+            except Exception as e:
+                print(f"  ❌ 异常: {e}")
+                step_results.append({
+                    'step': i,
+                    'status': 'FAILED',
+                    'error': str(e)
+                })
+        
+        drill_status = self.get_drill_status(drill_id)
+        is_success = all(r.get('status') == 'COMPLETED' for r in step_results)
+        
+        issues = []
+        improvements = []
+        if drill_status and drill_status.get('drill_result'):
+            if isinstance(drill_status['drill_result'], str):
+                try:
+                    result_data = json.loads(drill_status['drill_result'])
+                    issues = result_data.get('issues_found', [])
+                except:
+                    pass
+            elif isinstance(drill_status['drill_result'], dict):
+                issues = drill_status['drill_result'].get('issues_found', [])
+        
+        if drill_status and drill_status.get('improvements'):
+            if isinstance(drill_status['improvements'], str):
+                try:
+                    improvements = json.loads(drill_status['improvements'])
+                except:
+                    pass
+            elif isinstance(drill_status['improvements'], dict):
+                improvements = drill_status['improvements']
+        
+        print(f"\n{'='*60}")
+        print(f"演练完成: {scenario_obj.name}")
+        print(f"{'='*60}")
+        print(f"  总步骤数: {len(steps)}")
+        print(f"  成功步骤: {sum(1 for r in step_results if r.get('status') == 'COMPLETED')}")
+        print(f"  失败步骤: {sum(1 for r in step_results if r.get('status') != 'COMPLETED')}")
+        print(f"  演练状态: {'成功' if is_success else '部分失败'}")
+        print(f"  发现问题: {len(issues)} 个")
+        print(f"  整改建议: {len(improvements)} 条")
+        
+        if issues:
+            print(f"\n发现问题:")
+            for i, issue in enumerate(issues, 1):
+                print(f"  {i}. {issue}")
+        
+        if improvements:
+            print(f"\n整改建议:")
+            for i, imp in enumerate(improvements[:5], 1):
+                if isinstance(imp, dict):
+                    print(f"  {i}. [{imp.get('severity', '中')}] {imp.get('suggested_action', imp)}")
+                else:
+                    print(f"  {i}. {imp}")
+        
+        return {
+            'drill_id': drill_id,
+            'drill_name': scenario_obj.name,
+            'scenario_type': scenario_obj.scenario_type,
+            'status': 'SUCCESS' if is_success else 'PARTIAL_FAILURE',
+            'total_steps': len(steps),
+            'success_steps': sum(1 for r in step_results if r.get('status') == 'COMPLETED'),
+            'failed_steps': sum(1 for r in step_results if r.get('status') != 'COMPLETED'),
+            'issues': issues,
+            'improvements': improvements,
+            'step_results': step_results,
+            'completed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+    
+    def format_drill_result(self, drill_result: Dict[str, Any]) -> str:
+        """
+        格式化演练结果为展示文本
+        
+        Args:
+            drill_result: execute_drill返回的演练结果
+            
+        Returns:
+            格式化的演练结果文本
+        """
+        lines = [
+            "=" * 60,
+            "应急演练结果报告",
+            "=" * 60,
+            f"演练ID: {drill_result.get('drill_id', 'N/A')}",
+            f"演练名称: {drill_result.get('drill_name', 'N/A')}",
+            f"演练类型: {drill_result.get('scenario_type', 'N/A')}",
+            f"完成时间: {drill_result.get('completed_at', 'N/A')}",
+            "",
+            "执行统计:",
+            f"  总步骤数: {drill_result.get('total_steps', 0)}",
+            f"  成功: {drill_result.get('success_steps', 0)}",
+            f"  失败: {drill_result.get('failed_steps', 0)}",
+            f"  整体状态: {'成功' if drill_result.get('status') == 'SUCCESS' else '部分失败'}",
+        ]
+        
+        issues = drill_result.get('issues', [])
+        if issues:
+            lines.extend([
+                "",
+                "发现问题:",
+            ])
+            for i, issue in enumerate(issues, 1):
+                lines.append(f"  {i}. {issue}")
+        
+        improvements = drill_result.get('improvements', [])
+        if improvements:
+            lines.extend([
+                "",
+                "整改建议:",
+            ])
+            for i, imp in enumerate(improvements, 1):
+                if isinstance(imp, dict):
+                    lines.append(f"  {i}. [{imp.get('severity', '中')}] {imp.get('suggested_action', imp)}")
+                else:
+                    lines.append(f"  {i}. {imp}")
+        
+        lines.append("=" * 60)
+        return "\n".join(lines)
+    
+    def record_rectification(self, drill_id: str, operator: str,
+                            measures: List[str], deadline_days: int = 30) -> Dict[str, Any]:
+        """
+        记录整改措施
+        
+        Args:
+            drill_id: 演练ID
+            operator: 操作人
+            measures: 整改措施列表
+            deadline_days: 整改期限（天）
+            
+        Returns:
+            整改记录结果
+        """
+        rectifications = []
+        for measure in measures:
+            rectifications.append({
+                'description': measure,
+                'status': 'PENDING',
+                'assigned_to': operator,
+                'deadline': (datetime.now() + timedelta(days=deadline_days)).strftime('%Y-%m-%d'),
+                'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        self.db.execute('''
+            UPDATE emergency_drills 
+            SET rectifications = ?
+            WHERE drill_id = ?
+        ''', (json.dumps(rectifications, ensure_ascii=False), drill_id))
+        
+        get_audit_logger().log(
+            operation_type=OperationType.EMERGENCY_DRILL,
+            operator=operator,
+            request_params={
+                "drill_id": drill_id,
+                "measures": measures
+            },
+            response_result={"rectifications_count": len(rectifications)},
+            status="SUCCESS"
+        )
+        
+        logger.info(f"整改措施已记录: {drill_id}, 共 {len(rectifications)} 项")
+        
+        return {
+            'drill_id': drill_id,
+            'rectifications': rectifications,
+            'count': len(rectifications)
+        }
+    
+    def record_manual_fallback(self, drill_id: str, production_line: str,
+                               duration_minutes: int, processed_count: int) -> Dict[str, Any]:
+        """
+        记录人工兜底情况
+        
+        Args:
+            drill_id: 演练ID
+            production_line: 产线名称
+            duration_minutes: 兜底时长（分钟）
+            processed_count: 人工处理数量
+            
+        Returns:
+            记录结果
+        """
+        fallback_record = {
+            'drill_id': drill_id,
+            'production_line': production_line,
+            'duration_minutes': duration_minutes,
+            'processed_count': processed_count,
+            'recorded_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        self.db.execute('''
+            INSERT INTO manual_fallback_records 
+            (drill_id, production_line, duration_minutes, processed_count, recorded_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            drill_id, production_line, duration_minutes, processed_count,
+            fallback_record['recorded_at']
+        ))
+        
+        logger.info(f"人工兜底记录已保存: {drill_id}, 产线: {production_line}")
+        
+        return fallback_record
+    
+    def record_rollback(self, drill_id: str, from_version: str, to_version: str,
+                        reason: str) -> Dict[str, Any]:
+        """
+        记录演练中的版本回滚
+        
+        Args:
+            drill_id: 演练ID
+            from_version: 原版本
+            to_version: 回滚到的版本
+            reason: 回滚原因
+            
+        Returns:
+            记录结果
+        """
+        rollback_record = {
+            'drill_id': drill_id,
+            'from_version': from_version,
+            'to_version': to_version,
+            'reason': reason,
+            'rollback_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        self.db.execute('''
+            UPDATE emergency_drills 
+            SET rollback_record = ?
+            WHERE drill_id = ?
+        ''', (json.dumps(rollback_record, ensure_ascii=False), drill_id))
+        
+        logger.info(f"演练回滚记录已保存: {drill_id}, {from_version} -> {to_version}")
+        
+        return rollback_record
+    
+    def record_recovery(self, drill_id: str, production_line: str,
+                       recovery_time_seconds: int) -> Dict[str, Any]:
+        """
+        记录系统恢复情况
+        
+        Args:
+            drill_id: 演练ID
+            production_line: 产线名称
+            recovery_time_seconds: 恢复耗时（秒）
+            
+        Returns:
+            记录结果
+        """
+        recovery_record = {
+            'drill_id': drill_id,
+            'production_line': production_line,
+            'recovery_time_seconds': recovery_time_seconds,
+            'recovered_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        self.db.execute('''
+            UPDATE emergency_drills 
+            SET recovery_record = ?
+            WHERE drill_id = ?
+        ''', (json.dumps(recovery_record, ensure_ascii=False), drill_id))
+        
+        logger.info(f"系统恢复记录已保存: {drill_id}, 产线: {production_line}, 耗时: {recovery_time_seconds}秒")
+        
+        return recovery_record
 
 
 def get_drill_manager() -> EmergencyDrillManager:

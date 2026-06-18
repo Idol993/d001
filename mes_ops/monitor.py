@@ -277,6 +277,85 @@ class MonitorMetricsCollector:
                 metric.get('production_line'),
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ))
+    
+    def simulate_metrics(self, request_id: str, production_line: str,
+                         error_rate: float = 0.01,
+                         latency: float = 150,
+                         anomalies: int = 1) -> Dict[str, Any]:
+        """
+        便捷方法：模拟监控指标（用于演示和测试）
+        
+        Args:
+            request_id: 发布申请ID
+            production_line: 产线名称
+            error_rate: 工单报错率（0-1）
+            latency: 数据采集延迟(ms)
+            anomalies: 工艺参数异常次数
+            
+        Returns:
+            模拟的监控指标
+        """
+        error_rate_percent = error_rate * 100
+        error_threshold = self.metrics_config.get('work_order_error_rate', {}).get('threshold', 2.0)
+        latency_threshold = self.metrics_config.get('data_collection_latency', {}).get('threshold', 500)
+        anomalies_threshold = self.metrics_config.get('process_param_anomalies', {}).get('threshold', 5)
+        
+        metrics = {
+            'request_id': request_id,
+            'production_line': production_line,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'work_order_error_rate': {
+                'value': error_rate_percent,
+                'threshold': error_threshold,
+                'unit': '%',
+                'is_alert': error_rate_percent > error_threshold,
+                'detail': {
+                    'total_orders': random.randint(100, 500),
+                    'error_orders': int(error_rate * random.randint(100, 500))
+                }
+            },
+            'data_collection_latency': {
+                'value': latency,
+                'threshold': latency_threshold,
+                'unit': 'ms',
+                'is_alert': latency > latency_threshold
+            },
+            'process_param_anomalies': {
+                'value': anomalies,
+                'threshold': anomalies_threshold,
+                'unit': '次/5min',
+                'is_alert': anomalies > anomalies_threshold
+            }
+        }
+        
+        self._save_metrics([
+            {
+                'request_id': request_id,
+                'metric_type': MonitorMetricType.WORK_ORDER_ERROR_RATE.value,
+                'metric_value': error_rate_percent,
+                'threshold': error_threshold,
+                'is_alert': error_rate_percent > error_threshold,
+                'production_line': production_line
+            },
+            {
+                'request_id': request_id,
+                'metric_type': MonitorMetricType.DATA_COLLECTION_LATENCY.value,
+                'metric_value': latency,
+                'threshold': latency_threshold,
+                'is_alert': latency > latency_threshold,
+                'production_line': production_line
+            },
+            {
+                'request_id': request_id,
+                'metric_type': MonitorMetricType.PROCESS_PARAM_ANOMALIES.value,
+                'metric_value': anomalies,
+                'threshold': anomalies_threshold,
+                'is_alert': anomalies > anomalies_threshold,
+                'production_line': production_line
+            }
+        ])
+        
+        return metrics
 
 
 class RollbackDecisionEngine:
@@ -539,6 +618,45 @@ class AutoRollbackMonitor:
                 for rid, info in self.monitored_requests.items()
             }
         }
+    
+    def monitor_request(self, request_id: str) -> Dict[str, Any]:
+        """
+        便捷方法：开始监控指定的发布申请
+        
+        Args:
+            request_id: 发布申请ID
+            
+        Returns:
+            监控初始化结果
+        """
+        request = self.db.query_one('''
+            SELECT version, target_production_lines FROM release_requests WHERE request_id = ?
+        ''', (request_id,))
+        
+        if not request:
+            raise ValueError(f"未找到发布申请: {request_id}")
+        
+        production_lines = json.loads(request['target_production_lines']) if request['target_production_lines'] else None
+        
+        self.start_monitoring(
+            request_id=request_id,
+            version=request['version'],
+            production_lines=production_lines,
+            mock=True
+        )
+        
+        return {
+            'request_id': request_id,
+            'version': request['version'],
+            'production_lines': production_lines,
+            'monitoring': True,
+            'message': '监控已启动，每5分钟检查一次关键指标'
+        }
+    
+    @property
+    def _running(self) -> bool:
+        """兼容属性：返回监控服务运行状态"""
+        return self.running
 
 
 def get_metrics_collector() -> MonitorMetricsCollector:

@@ -19,11 +19,19 @@ logger = get_logger(__name__)
 class ApprovalWorkflow:
     """审批工作流"""
     
-    def __init__(self, request_id: str, risk_level: RiskLevel):
+    def __init__(self, request_id: str, risk_level: RiskLevel = None):
         self.request_id = request_id
-        self.risk_level = risk_level
         self.config = get_config()
         self.db = get_db()
+        
+        if risk_level is None:
+            req = self.db.query_one('SELECT risk_level FROM release_requests WHERE request_id = ?', (request_id,))
+            if req:
+                risk_level = RiskLevel(req['risk_level'])
+            else:
+                raise ValueError(f"未找到发布申请: {request_id}")
+        
+        self.risk_level = risk_level
         self._load_workflow_config()
     
     def _load_workflow_config(self) -> None:
@@ -264,6 +272,90 @@ class ApprovalWorkflow:
             'timeout_hours': self.timeout_hours,
             'approval_details': records
         }
+    
+    @property
+    def approvers(self) -> List[Dict[str, Any]]:
+        """获取审批人列表（便捷属性）"""
+        approver_list = []
+        for role in self.required_approvers:
+            if role in self.approvers_info:
+                info = self.approvers_info[role]
+                approver_list.append({
+                    'role': role,
+                    'name': info['name'],
+                    'email': info.get('email', ''),
+                    'phone': info.get('phone', '')
+                })
+        return approver_list
+    
+    def approve(self, approver_role: str, approver_name: str = None, 
+                approved: bool = True, comment: str = None) -> Tuple[bool, str]:
+        """
+        兼容方法：审批操作（支持通过/拒绝）
+        
+        Args:
+            approver_role: 审批人角色
+            approver_name: 审批人姓名（可选，默认为角色配置的姓名）
+            approved: 是否通过（True=通过，False=拒绝）
+            comment: 审批意见
+            
+        Returns:
+            (是否完成全部审批, 状态信息)
+        """
+        operator = approver_name or approver_role
+        
+        if not approved:
+            return self.reject(approver_role, operator, comment or "审批拒绝")
+        
+        return super().approve(approver_role, operator, comment) if hasattr(super(), 'approve') \
+            else self._approve(approver_role, operator, comment)
+    
+    def _approve(self, approver_role: str, operator: str, comment: str = None) -> Tuple[bool, str]:
+        """内部审批通过方法"""
+        approval_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        self.db.execute('''
+            UPDATE approval_records 
+            SET approval_status = ?, approval_comment = ?, approved_at = ?
+            WHERE request_id = ? AND approver_role = ?
+        ''', (
+            ApprovalStatus.APPROVED.value, comment, approval_time,
+            self.request_id, approver_role
+        ))
+        
+        approver_info = self.approvers_info.get(approver_role, {})
+        logger.info(f"审批通过: {self.request_id} -> {approver_info.get('name', approver_role)}")
+        
+        get_audit_logger().log(
+            operation_type=OperationType.MANUAL_APPROVAL,
+            operator=operator,
+            request_params={
+                "request_id": self.request_id,
+                "approver_role": approver_role,
+                "comment": comment
+            },
+            response_result={"status": "APPROVED"},
+            status="SUCCESS"
+        )
+        
+        all_approved, pending_count = self._check_approval_status()
+        
+        if all_approved:
+            self.db.execute('''
+                UPDATE release_requests 
+                SET status = ?, updated_at = ?
+                WHERE request_id = ?
+            ''', (
+                'APPROVAL_PASSED', approval_time, self.request_id
+            ))
+            return True, f"所有审批已通过，可以开始部署"
+        
+        return False, f"审批通过，仍有 {pending_count} 人待审批"
+    
+    def is_approved(self) -> bool:
+        """检查是否所有审批都已通过"""
+        all_approved, _ = self._check_approval_status()
+        return all_approved
 
 
 class ApprovalManager:
@@ -342,6 +434,19 @@ class ApprovalManager:
             return None
         
         return ApprovalWorkflow(request_id, RiskLevel(request['risk_level']))
+    
+    def create_workflow(self, request_id: str, risk_level: RiskLevel = None) -> ApprovalWorkflow:
+        """
+        便捷方法：创建审批工作流
+        
+        Args:
+            request_id: 发布申请ID
+            risk_level: 风险等级（可选，若未提供则从数据库查询）
+            
+        Returns:
+            ApprovalWorkflow 审批工作流实例
+        """
+        return self.start_approval_workflow(request_id)
     
     def query_release_requests(self, status: str = None, risk_level: RiskLevel = None,
                                applicant: str = None, start_time: str = None,

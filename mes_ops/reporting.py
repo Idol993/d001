@@ -183,9 +183,9 @@ class WeeklyReportGenerator:
         if daily_data:
             fig, ax = plt.subplots(figsize=self.figure_size)
             days = sorted(daily_data.keys())
-            counts = [daily[d] for day in days]
+            counts = [daily_data[d] for d in days]
             
-            ax.bar(days, daily, color='#3498DB', alpha=0.8)
+            ax.bar(days, counts, color='#3498DB', alpha=0.8)
             ax.set_title('每日发布次数趋势', fontsize=16, fontweight='bold')
             ax.set_xlabel('日期', fontsize=12)
             ax.set_ylabel('发布次数', fontsize=12)
@@ -537,10 +537,24 @@ class WeeklyReportGenerator:
         
         return suggestions
     
-    def generate_weekly_report(self) -> Dict[str, Any]:
-        """生成完整的周度报告"""
+    def generate_weekly_report(self, start_date: datetime = None, 
+                                end_date: datetime = None) -> Dict[str, Any]:
+        """
+        生成完整的周度报告
+        
+        Args:
+            start_date: 开始日期（可选，默认自动计算上周）
+            end_date: 结束日期（可选，默认自动计算本周二）
+            
+        Returns:
+            完整的报告结果字典
+        """
         report_id = f"WEEKLY-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
-        period_str, start_date, end_date = self._get_report_period()
+        
+        if start_date is not None and end_date is not None:
+            period_str = f"{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
+        else:
+            period_str, start_date, end_date = self._get_report_period()
         
         logger.info(f"开始生成周度报告: {report_id}, 周期: {period_str}")
         
@@ -591,7 +605,8 @@ class WeeklyReportGenerator:
         
         logger.info(f"周度报告生成完成: {report_id}")
         
-        return report
+        # 返回元组以兼容解包，同时包含完整信息
+        return (report_id, pdf_path, excel_path, report)
 
 
 def get_report_generator() -> WeeklyReportGenerator:

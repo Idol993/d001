@@ -161,7 +161,7 @@ class GrayDeploymentEngine:
         
         return stage_lines
     
-    @audit_operation(OperationType.VERSION_DEPLOY, lambda args: args[2])
+    @audit_operation(OperationType.VERSION_DEPLOY, lambda *args, **kwargs: kwargs.get('operator', args[4] if len(args) > 4 else 'system'))
     def deploy_to_stage(self, request_id: str, version: str, 
                         stage: DeploymentStage, operator: str,
                         target_lines: List[str] = None,
@@ -334,7 +334,7 @@ class GrayDeploymentEngine:
         logger.info(f"正在部署版本 {version} 到产线 {production_line}")
         return True
     
-    @audit_operation(OperationType.VERSION_DEPLOY, lambda args: args[1])
+    @audit_operation(OperationType.VERSION_DEPLOY, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def confirm_full_deployment(self, operator: str, request_id: str, 
                                 version: str) -> Dict[str, Any]:
         """确认全量部署完成"""
@@ -393,7 +393,7 @@ class GrayDeploymentEngine:
         logger.info(f"版本 {version} 全量部署完成，已标记为稳定版本")
         return result
     
-    @audit_operation(OperationType.VERSION_ROLLBACK, lambda args: args[1])
+    @audit_operation(OperationType.VERSION_ROLLBACK, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def rollback(self, operator: str, request_id: str, 
                  from_version: str, to_version: str,
                  reason: str, affected_lines: List[str] = None,
@@ -630,7 +630,7 @@ class GrayDeploymentEngine:
             SELECT * FROM production_line_status ORDER BY line_name
         ''')
     
-    @audit_operation(OperationType.PERMISSION_CHANGE, lambda args: args[1])
+    @audit_operation(OperationType.PERMISSION_CHANGE, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))
     def restore_production_line(self, operator: str, line_name: str,
                                 reason: str = "故障修复完成") -> Dict[str, Any]:
         """恢复产线自动生产权限"""
@@ -668,6 +668,317 @@ class GrayDeploymentEngine:
             'status': 'UNLOCKED',
             'auto_production_enabled': True,
             'fallback_mode': 'NORMAL'
+        }
+    
+    def start_deployment(self, request_id: str, version: str = None, 
+                         target_production_lines: List[str] = None,
+                         operator: str = 'system',
+                         mock: bool = True) -> Dict[str, Any]:
+        """
+        便捷方法：开始部署（初始化部署状态）
+        
+        Args:
+            request_id: 发布申请ID
+            version: 版本号（可选，自动从数据库查询）
+            target_production_lines: 目标产线列表
+            operator: 操作人
+            mock: 是否模拟模式
+            
+        Returns:
+            部署初始化结果
+        """
+        if version is None:
+            req = self.db.query_one('SELECT version FROM release_requests WHERE request_id = ?', (request_id,))
+            if req:
+                version = req['version']
+            elif mock:
+                version = f"MES_V2.5.1"
+            else:
+                raise ValueError(f"未找到版本号，request_id: {request_id}")
+        
+        if target_production_lines is None:
+            target_production_lines = list(self.line_to_workshop.keys())
+        
+        self.db.execute('''
+            UPDATE release_requests 
+            SET status = ?, updated_at = ?
+            WHERE request_id = ?
+        ''', (
+            DeploymentStatus.DEPLOYING.value,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            request_id
+        ))
+        
+        logger.info(f"部署已初始化: {request_id}, 版本: {version}, 目标产线: {len(target_production_lines)} 条")
+        
+        return {
+            'request_id': request_id,
+            'version': version,
+            'target_lines': target_production_lines,
+            'current_stage': None,
+            'status': DeploymentStatus.DEPLOYING.value
+        }
+    
+    def get_current_stage(self, request_id: str) -> Optional[DeploymentStage]:
+        """
+        获取当前部署阶段
+        
+        Args:
+            request_id: 发布申请ID
+            
+        Returns:
+            当前部署阶段或None
+        """
+        deployments = self.db.query('''
+            SELECT stage FROM deployment_records 
+            WHERE request_id = ? AND status IN ('GRAY_OBSERVING', 'FULL_DEPLOYED')
+            ORDER BY id DESC LIMIT 1
+        ''', (request_id,))
+        
+        if deployments and deployments[0]['stage']:
+            stage_value = deployments[0]['stage']
+            try:
+                return DeploymentStage(stage_value)
+            except:
+                return None
+        
+        return None
+    
+    def deploy_to_next_stage(self, request_id: str, operator: str = 'system',
+                             mock: bool = True) -> Optional[DeploymentStage]:
+        """
+        便捷方法：部署到下一阶段
+        
+        Args:
+            request_id: 发布申请ID
+            operator: 操作人
+            mock: 是否模拟部署
+            
+        Returns:
+            已完成的阶段，若已完成全量则返回None
+        """
+        request = self.db.query_one('''
+            SELECT version, target_production_lines FROM release_requests 
+            WHERE request_id = ?
+        ''', (request_id,))
+        
+        if not request:
+            raise ValueError(f"未找到发布申请: {request_id}")
+        
+        version = request['version']
+        target_lines = json.loads(request['target_production_lines']) if request['target_production_lines'] else None
+        
+        current_stage = self.get_current_stage(request_id)
+        
+        stages_order = [
+            DeploymentStage.PILOT,
+            DeploymentStage.EXTENDED,
+            DeploymentStage.HALF,
+            DeploymentStage.FULL
+        ]
+        
+        if current_stage is None:
+            next_stage_idx = 0
+        else:
+            next_stage_idx = stages_order.index(current_stage) + 1
+        
+        if next_stage_idx >= len(stages_order):
+            return None
+        
+        next_stage = stages_order[next_stage_idx]
+        
+        result = self.deploy_to_stage(
+            request_id=request_id,
+            version=version,
+            stage=next_stage,
+            operator=operator,
+            target_lines=target_lines,
+            mock=mock
+        )
+        
+        if next_stage == DeploymentStage.FULL:
+            self.confirm_full_deployment(operator, request_id, version)
+        
+        return next_stage
+    
+    def rollback(self, operator: str, request_id: str, reason: str,
+                 affected_lines: List[str] = None,
+                 trigger_metrics: Dict[str, Any] = None,
+                 mock: bool = True) -> Dict[str, Any]:
+        """
+        便捷方法：执行版本回滚（自动获取from_version和to_version）
+        
+        Args:
+            operator: 操作人
+            request_id: 发布申请ID
+            reason: 回滚原因
+            affected_lines: 受影响产线
+            trigger_metrics: 触发回滚的监控指标
+            mock: 是否模拟模式
+            
+        Returns:
+            回滚结果
+        """
+        request = self.db.query_one('''
+            SELECT version FROM release_requests WHERE request_id = ?
+        ''', (request_id,))
+        
+        if not request:
+            raise ValueError(f"未找到发布申请: {request_id}")
+        
+        from_version = request['version']
+        stable_version = self.version_manager.get_stable_version()
+        to_version = stable_version['version'] if stable_version else from_version
+        
+        return self._rollback(
+            operator=operator,
+            request_id=request_id,
+            from_version=from_version,
+            to_version=to_version,
+            reason=reason,
+            affected_lines=affected_lines,
+            trigger_metrics=trigger_metrics
+        )
+    
+    def _rollback(self, operator: str, request_id: str, 
+                  from_version: str, to_version: str,
+                  reason: str, affected_lines: List[str] = None,
+                  trigger_metrics: Dict[str, Any] = None) -> Dict[str, Any]:
+        """实际的回滚实现"""
+        logger.warning(f"执行版本回滚: {from_version} -> {to_version}, 原因: {reason}")
+        
+        if affected_lines is None:
+            affected_lines = list(self.line_to_workshop.keys())
+        
+        estimated_defect_count = self._estimate_defect_count(affected_lines)
+        root_cause = self._analyze_root_cause(trigger_metrics, reason)
+        
+        self.db.execute('''
+            UPDATE release_requests 
+            SET status = ?, updated_at = ?
+            WHERE request_id = ?
+        ''', (
+            DeploymentStatus.ROLLING_BACK.value,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            request_id
+        ))
+        
+        rollback_results = []
+        success_count = 0
+        
+        for line in affected_lines:
+            try:
+                success = random.random() > 0.05
+                
+                if success:
+                    success_count += 1
+                    self.db.execute('''
+                        UPDATE production_line_status 
+                        SET current_version = ?, auto_production_enabled = 0,
+                            fallback_mode = 'LOCAL_DB', last_heartbeat = ?
+                        WHERE line_name = ?
+                    ''', (
+                        to_version, 
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        line
+                    ))
+                    
+                    self.db.execute('''
+                        INSERT INTO permission_changes 
+                        (production_line, permission_status, reason, operator, changed_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        line, 'LOCKED', reason, operator,
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    ))
+                
+                rollback_results.append({
+                    'line': line,
+                    'workshop': self.line_to_workshop.get(line, '未知'),
+                    'status': 'SUCCESS' if success else 'FAILED',
+                    'permission_locked': success
+                })
+            
+            except Exception as e:
+                rollback_results.append({
+                    'line': line,
+                    'workshop': self.line_to_workshop.get(line, '未知'),
+                    'status': 'FAILED',
+                    'error': str(e)
+                })
+        
+        overall_status = 'ROLLED_BACK' if success_count > 0 else 'ROLLBACK_FAILED'
+        
+        self.db.execute('''
+            UPDATE release_requests 
+            SET status = ?, updated_at = ?
+            WHERE request_id = ?
+        ''', (
+            DeploymentStatus.ROLLED_BACK.value if success_count > 0 else DeploymentStatus.FAILED.value,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            request_id
+        ))
+        
+        self.db.execute('''
+            INSERT INTO deployment_records 
+            (request_id, version, stage, stage_name, production_lines, 
+             status, start_time, end_time, rollback_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            request_id, to_version, 0, '回滚',
+            json.dumps(affected_lines, ensure_ascii=False),
+            DeploymentStatus.ROLLED_BACK.value,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            reason
+        ))
+        
+        rollback_id = self.db.execute('''
+            INSERT INTO rollback_records 
+            (request_id, rollback_reason, from_version, to_version, 
+             affected_lines, trigger_metrics, rollback_time, 
+             estimated_defect_count, root_cause)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            request_id, reason, from_version, to_version,
+            json.dumps(affected_lines, ensure_ascii=False),
+            json.dumps(trigger_metrics or {}, ensure_ascii=False),
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            estimated_defect_count,
+            json.dumps(root_cause, ensure_ascii=False)
+        ))
+        
+        get_audit_logger().log(
+            operation_type=OperationType.VERSION_ROLLBACK,
+            operator=operator,
+            request_params={
+                "request_id": request_id,
+                "from_version": from_version,
+                "to_version": to_version,
+                "reason": reason,
+                "affected_lines": affected_lines
+            },
+            response_result={
+                "rollback_id": rollback_id,
+                "estimated_defect_count": estimated_defect_count,
+                "root_cause": root_cause
+            },
+            status="SUCCESS"
+        )
+        
+        return {
+            'rollback_id': rollback_id,
+            'request_id': request_id,
+            'from_version': from_version,
+            'to_version': to_version,
+            'reason': reason,
+            'affected_lines': affected_lines,
+            'success_count': success_count,
+            'total_count': len(affected_lines),
+            'estimated_defect_count': estimated_defect_count,
+            'root_cause': root_cause,
+            'results': rollback_results,
+            'overall_status': overall_status
         }
 
 

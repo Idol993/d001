@@ -184,9 +184,25 @@ class DatabaseManager:
                     trigger_scenario TEXT,
                     drill_result TEXT,
                     improvements TEXT,
+                    rectifications TEXT,
+                    rollback_record TEXT,
+                    recovery_record TEXT,
                     started_at DATETIME,
                     completed_at DATETIME,
                     operator TEXT NOT NULL
+                )
+            ''')
+            
+            self._migrate_emergency_drills(cursor)
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS manual_fallback_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    drill_id TEXT NOT NULL,
+                    production_line TEXT NOT NULL,
+                    duration_minutes INTEGER,
+                    processed_count INTEGER,
+                    recorded_at DATETIME
                 )
             ''')
             
@@ -218,12 +234,16 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     record_id TEXT UNIQUE NOT NULL,
                     source TEXT NOT NULL,
+                    production_line TEXT,
                     data_content TEXT NOT NULL,
+                    fallback_mode TEXT DEFAULT 'NORMAL',
                     is_synced BOOLEAN DEFAULT 0,
                     synced_at DATETIME,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            
+            self._migrate_fallback_data_records(cursor)
             
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS weekly_reports (
@@ -266,6 +286,39 @@ class DatabaseManager:
                 (line_name, is_running, auto_production_enabled, fallback_mode)
                 VALUES (?, 1, 1, 'NORMAL')
             ''', (line,))
+    
+    def _migrate_fallback_data_records(self, cursor) -> None:
+        """迁移 fallback_data_records 表，添加缺失的列"""
+        try:
+            cursor.execute("PRAGMA table_info(fallback_data_records)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'production_line' not in columns:
+                cursor.execute("ALTER TABLE fallback_data_records ADD COLUMN production_line TEXT")
+            
+            if 'fallback_mode' not in columns:
+                cursor.execute("ALTER TABLE fallback_data_records ADD COLUMN fallback_mode TEXT DEFAULT 'NORMAL'")
+                
+        except Exception as e:
+            logger.warning(f"迁移 fallback_data_records 表时出错（可能是新表）: {e}")
+    
+    def _migrate_emergency_drills(self, cursor) -> None:
+        """迁移 emergency_drills 表，添加缺失的列"""
+        try:
+            cursor.execute("PRAGMA table_info(emergency_drills)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'rectifications' not in columns:
+                cursor.execute("ALTER TABLE emergency_drills ADD COLUMN rectifications TEXT")
+            
+            if 'rollback_record' not in columns:
+                cursor.execute("ALTER TABLE emergency_drills ADD COLUMN rollback_record TEXT")
+            
+            if 'recovery_record' not in columns:
+                cursor.execute("ALTER TABLE emergency_drills ADD COLUMN recovery_record TEXT")
+                
+        except Exception as e:
+            logger.warning(f"迁移 emergency_drills 表时出错（可能是新表）: {e}")
     
     def execute(self, sql: str, params: Tuple = None) -> int:
         """执行SQL并返回lastrowid"""

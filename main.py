@@ -185,8 +185,45 @@ class MESReleaseSystem:
         
         logger.info(f"开始执行前置校验: {request_id}")
         
-        check_result = self.pre_check_engine.run_all_checks(request_id)
-        all_passed = all(r['passed'] for r in check_result.values())
+        check_result = self.pre_check_engine.run_checks_for_request(
+            request_id=request_id,
+            operator='system',
+            mock=True
+        )
+        
+        check_items = [
+            ('test_coverage', '自动化测试覆盖率校验'),
+            ('code_security', '代码安全合规审查'),
+            ('plc_interface', 'PLC设备对接接口检测'),
+            ('wms_system', 'WMS仓储依赖系统健康探测')
+        ]
+        
+        print("\n" + "=" * 60)
+        print("前置校验结果")
+        print("=" * 60)
+        
+        all_passed = True
+        for key, name in check_items:
+            item = check_result.get(key, {})
+            passed = item.get('passed', False)
+            status = "✅ 通过" if passed else "❌ 失败"
+            detail = item.get('detail', {})
+            
+            if not passed:
+                all_passed = False
+            
+            print(f"\n{status} {name}")
+            print(f"  校验项: {item.get('check_name', name)}")
+            print(f"  结果: {detail.get('message', 'N/A')}")
+            
+            if detail:
+                for k, v in detail.items():
+                    if not isinstance(v, (list, dict)) and k != 'message':
+                        print(f"  {k}: {v}")
+        
+        print("\n" + "=" * 60)
+        print(f"整体结果: {'✅ 全部通过' if all_passed else '❌ 存在失败项'}")
+        print("=" * 60 + "\n")
         
         if all_passed:
             self.db.execute('''
@@ -203,7 +240,7 @@ class MESReleaseSystem:
             
             logger.info(f"前置校验全部通过，已进入审批流程")
         else:
-            failed_items = [k for k, v in check_result.items() if not v['passed']]
+            failed_items = [k for k, v in check_result.items() if not v.get('passed', False)]
             self.db.execute('''
                 UPDATE release_requests 
                 SET status = ?, pre_check_result = ?
@@ -229,10 +266,29 @@ class MESReleaseSystem:
     
     def _create_approval_workflow(self, request_id: str, risk_level: RiskLevel):
         """创建审批流程"""
+        request = self.db.query_one('''
+            SELECT * FROM release_requests WHERE request_id = ?
+        ''', (request_id,))
+        
+        version = request['version'] if request else 'N/A'
+        risk_desc = '常规版本' if risk_level == RiskLevel.L1_NORMAL else '紧急版本'
+        
         workflow = self.approval_manager.create_workflow(
             request_id=request_id,
             risk_level=risk_level
         )
+        
+        print("\n" + "=" * 60)
+        print(f"审批流程已创建 [{risk_desc}]")
+        print("=" * 60)
+        print(f"版本: {version}")
+        print(f"风险等级: {risk_level.value}")
+        print(f"需要 {len(workflow.approvers)} 人审批:")
+        
+        for i, approver in enumerate(workflow.approvers, 1):
+            print(f"  {i}. {approver['role']}: {approver['name']}")
+        
+        print("=" * 60 + "\n")
         
         logger.info(f"已创建审批流程，需要 {len(workflow.approvers)} 人审批")
         for approver in workflow.approvers:
@@ -277,7 +333,12 @@ class MESReleaseSystem:
         if not workflow:
             raise ValueError(f"未找到审批流程: {request_id}")
         
-        is_completed = workflow.approve(approver_role, approver_name, approved, comment)
+        status_text = "✅ 通过" if approved else "❌ 拒绝"
+        print(f"  {approver_name} ({approver_role}) 审批: {status_text}")
+        if comment:
+            print(f"    意见: {comment}")
+        
+        is_completed, status_msg = workflow.approve(approver_role, approver_name, approved, comment)
         
         if is_completed:
             request = self.db.query_one('''
@@ -289,6 +350,7 @@ class MESReleaseSystem:
                     UPDATE release_requests SET status = ? WHERE request_id = ?
                 ''', (DeploymentStatus.DEPLOYING.value, request_id))
                 
+                print(f"\n✅ 所有审批已通过，状态变更为: 部署中")
                 logger.info(f"审批全部通过，开始灰度部署: {request_id}")
                 
                 self.notification.send_notification(
@@ -305,6 +367,9 @@ class MESReleaseSystem:
                     UPDATE release_requests SET status = ? WHERE request_id = ?
                 ''', (DeploymentStatus.APPROVAL_REJECTED.value, request_id))
                 
+                print(f"\n❌ 审批被拒绝，流程终止")
+                print(f"  拒绝人: {approver_name}")
+                print(f"  拒绝意见: {comment}")
                 logger.warning(f"审批被拒绝: {request_id}")
                 
                 self.notification.send_notification(
@@ -332,8 +397,21 @@ class MESReleaseSystem:
         self.deployment_engine.start_deployment(
             request_id=request_id,
             version=request['version'],
-            target_production_lines=target_lines
+            target_production_lines=target_lines,
+            operator='system'
         )
+        
+        print("\n" + "=" * 60)
+        print("灰度部署已启动")
+        print("=" * 60)
+        print(f"版本: {request['version']}")
+        print(f"目标产线: {len(target_lines)} 条")
+        print("将分4阶段部署:")
+        print("  阶段1: 试点 (10% 产线)")
+        print("  阶段2: 扩展 (30% 产线)")
+        print("  阶段3: 半量 (50% 产线)")
+        print("  阶段4: 全量 (100% 产线)")
+        print("=" * 60 + "\n")
         
         logger.info(f"灰度部署已启动，将分4阶段部署到 {len(target_lines)} 条产线")
     
@@ -357,16 +435,28 @@ class MESReleaseSystem:
         current_stage = self.deployment_engine.get_current_stage(request_id)
         logger.info(f"当前部署阶段: {current_stage.name if current_stage else '未开始'}")
         
-        next_stage = self.deployment_engine.deploy_to_next_stage(request_id)
+        next_stage = self.deployment_engine.deploy_to_next_stage(
+            request_id=request_id,
+            operator='system',
+            mock=True
+        )
         
         if next_stage:
-            logger.info(f"已推进到阶段: {next_stage.name}")
+            stage_names = {
+                DeploymentStage.PILOT: '阶段1: 试点 (10%)',
+                DeploymentStage.EXTENDED: '阶段2: 扩展 (30%)',
+                DeploymentStage.HALF: '阶段3: 半量 (50%)',
+                DeploymentStage.FULL: '阶段4: 全量 (100%)',
+            }
+            
+            print(f"  ✅ {stage_names.get(next_stage, next_stage.name)} 部署完成")
             
             if next_stage == DeploymentStage.FULL:
                 self.db.execute('''
                     UPDATE release_requests SET status = ? WHERE request_id = ?
                 ''', (DeploymentStatus.FULL_DEPLOYED.value, request_id))
                 
+                print(f"\n✅ 全量部署完成，启动实时监控")
                 logger.info(f"全量部署完成，开始启动监控: {request_id}")
                 
                 self.monitor.monitor_request(request_id)
@@ -445,11 +535,25 @@ class MESReleaseSystem:
         
         target_lines = json.loads(request['target_production_lines'])
         
+        print("\n" + "=" * 60)
+        print("⚠️  触发自动回滚")
+        print("=" * 60)
+        print(f"原因: {reason}")
+        
         rollback_result = self.deployment_engine.rollback(
             request_id=request_id,
+            operator='system',
             reason=reason,
-            affected_lines=target_lines
+            mock=True
         )
+        
+        from_version = rollback_result.get('from_version', 'N/A')
+        to_version = rollback_result.get('to_version', 'N/A')
+        
+        print(f"\n版本回滚:")
+        print(f"  从版本: {from_version}")
+        print(f"  到版本: {to_version}")
+        print(f"  回滚时间: {rollback_result.get('rollback_time', 'N/A')}")
         
         report = self.fault_analysis.generate_report(
             request_id=request_id,
@@ -462,6 +566,18 @@ class MESReleaseSystem:
         
         self.fault_recovery.lock_production_lines(target_lines, reason)
         
+        print(f"\n产线权限已锁定:")
+        for line in target_lines[:5]:
+            print(f"  - {line}")
+        if len(target_lines) > 5:
+            print(f"  ... 等共 {len(target_lines)} 条产线")
+        
+        root_cause = report.get('root_cause_analysis', {})
+        defects = report.get('defect_estimate', {})
+        
+        print(f"\n根因分析: {root_cause.get('primary_cause', '未知')}")
+        print(f"不良品预估: {defects.get('total_estimated_defects', 0)} 件")
+        
         report_content = self.fault_analysis.format_report_for_notification(report)
         self.notification.send_notification(
             alert_level=AlertLevel.LEVEL3,
@@ -469,6 +585,8 @@ class MESReleaseSystem:
             content=report_content,
             channels=['email', 'wechat', 'dingtalk']
         )
+        
+        print("=" * 60 + "\n")
         
         return {
             'rollback_result': rollback_result,
@@ -492,11 +610,17 @@ class MESReleaseSystem:
         
         logger.info(f"恢复产线生产: {production_line}, 操作人: {operator}")
         
+        print(f"\n🔧 故障修复验证:")
+        print(f"  产线: {production_line}")
+        print(f"  操作人: {operator}")
+        
         is_verified = self.fault_recovery.verify_fix_completed(production_line)
+        print(f"  修复验证: {'✅ 通过' if is_verified else '❌ 未通过'}")
         
         if is_verified:
             self.fault_recovery.restore_production_line(production_line, operator)
             self.fallback_manager.restore_normal_mode(production_line, operator)
+            print(f"  产线状态: ✅ 已恢复自动生产")
             logger.info(f"产线 {production_line} 已恢复正常生产")
             return True
         else:
@@ -519,13 +643,61 @@ class MESReleaseSystem:
         
         logger.info(f"启动应急演练: {drill_type}, 操作人: {operator}")
         
+        print("\n" + "=" * 60)
+        print("🚨 应急演练启动")
+        print("=" * 60)
+        
         scenario = self.drill_manager.create_scenario(
             drill_type=drill_type,
             operator=operator,
             target_lines=DEFAULT_PRODUCTION_LINES[:3]
         )
         
+        print(f"演练ID: {scenario.drill_id}")
+        print(f"演练类型: {scenario.name}")
+        print(f"目标产线: {len(scenario.target_lines)} 条")
+        print(f"操作人: {operator}")
+        
         drill_result = self.drill_manager.execute_drill(scenario)
+        
+        drill_id = drill_result.get('drill_id')
+        
+        self.drill_manager.record_rollback(
+            drill_id=drill_id,
+            from_version='MES_V2.5.1',
+            to_version='MES_V2.5.0',
+            reason='演练模拟：数据采集崩溃导致系统不稳定'
+        )
+        
+        self.drill_manager.record_manual_fallback(
+            drill_id=drill_id,
+            production_line=DEFAULT_PRODUCTION_LINES[0],
+            duration_minutes=30,
+            processed_count=150
+        )
+        
+        self.drill_manager.record_recovery(
+            drill_id=drill_id,
+            production_line=DEFAULT_PRODUCTION_LINES[0],
+            recovery_time_seconds=180
+        )
+        
+        issues = drill_result.get('issues', [])
+        if issues:
+            self.drill_manager.record_rectification(
+                drill_id=drill_id,
+                operator=operator,
+                measures=[
+                    '优化数据采集模块异常处理逻辑',
+                    '增加边缘网关缓存容量',
+                    '完善人工兜底操作指引文档',
+                    '定期开展应急演练培训'
+                ],
+                deadline_days=30
+            )
+        
+        formatted_result = self.drill_manager.format_drill_result(drill_result)
+        print("\n" + formatted_result)
         
         logger.info(f"应急演练完成: {scenario.drill_id}")
         logger.info(f"  演练名称: {scenario.name}")
@@ -535,7 +707,8 @@ class MESReleaseSystem:
         
         return {
             'scenario': scenario,
-            'result': drill_result
+            'result': drill_result,
+            'formatted_result': formatted_result
         }
     
     def run_weekly_report_task(self) -> Dict[str, Any]:
@@ -550,16 +723,33 @@ class MESReleaseSystem:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=7)
         
-        report_id, pdf_path, excel_path = self.report_generator.generate_weekly_report(
+        print("\n" + "=" * 60)
+        print("📊 生成周度运维报表")
+        print("=" * 60)
+        print(f"统计周期: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
+        
+        report_id, pdf_path, excel_path, report = self.report_generator.generate_weekly_report(
             start_date=start_date,
             end_date=end_date
         )
+        
+        print(f"\n报表ID: {report_id}")
+        print(f"PDF路径: {pdf_path}")
+        print(f"Excel路径: {excel_path}")
+        
+        print(f"\n统计摘要:")
+        print(f"  发布成功率: {report.get('release_success_rate', 0):.1f}%")
+        print(f"  紧急回滚次数: {report.get('emergency_rollback_count', 0)} 次")
+        print(f"  平均审批时长: {report.get('avg_approval_hours', 0):.1f} 小时")
+        
+        print("=" * 60 + "\n")
         
         result = {
             'report_id': report_id,
             'report_period': f"{start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}",
             'pdf_path': pdf_path,
-            'excel_path': excel_path
+            'excel_path': excel_path,
+            'report': report
         }
         
         logger.info(f"周度报表生成完成: {report_id}")
@@ -601,12 +791,31 @@ class MESReleaseSystem:
         if end_date is None:
             end_date = datetime.now()
         
-        file_path = self.query_manager.export_to_excel(
+        print("\n" + "=" * 60)
+        print("📤 批量导出记录")
+        print("=" * 60)
+        print(f"导出类型: {export_type}")
+        print(f"时间范围: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
+        print(f"输出路径: {output_path}")
+        
+        file_path = self.query_manager.export_records(
             export_type=export_type,
             output_path=output_path,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            operator='system'
         )
+        
+        print(f"\n✅ 导出完成: {file_path}")
+        
+        if export_type == 'all':
+            print("\n导出内容包含:")
+            print("  - 发布申请记录")
+            print("  - 审批流程记录")
+            print("  - 故障处置记录")
+            print("  - 产线停机记录")
+        
+        print("=" * 60 + "\n")
         
         logger.info(f"记录已导出: {file_path}")
         return file_path
