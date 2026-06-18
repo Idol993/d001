@@ -322,12 +322,13 @@ class TaskScheduler:
         
         logger.info(f"开始生成周度报表: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
         
-        report_id, pdf_path, excel_path = report_generator.generate_weekly_report(
+        report_id, pdf_path, excel_path, report = report_generator.generate_weekly_report(
             start_date=start_date,
             end_date=end_date
         )
         
         logger.info(f"周度报表生成完成: {report_id}")
+        logger.info(f"  报表ID: {report_id}")
         logger.info(f"  PDF报告: {pdf_path}")
         logger.info(f"  Excel报表: {excel_path}")
         

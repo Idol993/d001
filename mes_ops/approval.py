@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from .database import get_db
 from .logger import get_logger
 from .config import get_config
-from .constants import RiskLevel, ApprovalStatus, OperationType
+from .constants import RiskLevel, ApprovalStatus, OperationType, DeploymentStatus
 from .audit import audit_operation, get_audit_logger
 
 logger = get_logger(__name__)
@@ -521,6 +521,66 @@ class ApprovalManager:
         request['deployments'] = deployments
         
         return request
+    
+    def check_all_timeout(self, timeout_hours: int = 24) -> int:
+        """检查所有待审批单据是否超时
+        
+        Args:
+            timeout_hours: 超时时间（小时），默认24小时
+            
+        Returns:
+            处理的超时审批数量
+        """
+        timeout_count = 0
+        
+        pending_approvals = self.db.query('''
+            SELECT ar.request_id, ar.approver_role, ar.approval_status,
+                   rr.created_at, rr.status
+            FROM approval_records ar
+            INNER JOIN release_requests rr ON ar.request_id = rr.request_id
+            WHERE ar.approval_status = ?
+            ORDER BY ar.request_id
+        ''', (
+            ApprovalStatus.PENDING.value,
+        ))
+        
+        for approval in pending_approvals:
+            try:
+                created_at = datetime.strptime(approval['created_at'], '%Y-%m-%d %H:%M:%S')
+                deadline = created_at + timedelta(hours=timeout_hours)
+                is_timeout = datetime.now() > deadline
+                
+                if is_timeout:
+                    self.db.execute('''
+                        UPDATE approval_records 
+                        SET approval_status = ?, 
+                            approved_at = ?,
+                            approval_comment = ?
+                        WHERE request_id = ? 
+                          AND approver_role = ? 
+                          AND approval_status = ?
+                    ''', (
+                        ApprovalStatus.TIMEOUT.value,
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        f"审批超时（{timeout_hours}小时未处理）",
+                        approval['request_id'],
+                        approval['approver_role'],
+                        ApprovalStatus.PENDING.value
+                    ))
+                    
+                    timeout_count += 1
+                    logger.warning(f"审批超时已标记: {approval['request_id']} -> {approval['approver_role']}")
+                    
+            except Exception as e:
+                logger.error(f"处理审批超时时出错: {approval['request_id']}, 错误: {e}")
+                continue
+        
+        if timeout_count > 0:
+            logger.info(f"审批超时检查完成，共标记 {timeout_count} 个超时审批")
+        else:
+            logger.info(f"审批超时检查完成，没有发现超时审批")
+        
+        return timeout_count
 
 
 def get_approval_manager() -> ApprovalManager:

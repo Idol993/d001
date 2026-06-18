@@ -42,7 +42,7 @@ class VersionManager:
         return md5_hash.hexdigest()
     
     def register_version(self, version: str, package_path: str, 
-                         is_stable: bool = True, md5_checksum: str = None,
+                         is_stable: bool = False, md5_checksum: str = None,
                          mock_mode: bool = None) -> Dict[str, Any]:
         """注册新版本到版本仓库"""
         if mock_mode is None:
@@ -63,6 +63,12 @@ class VersionManager:
         else:
             md5 = md5_checksum or self._generate_mock_md5(version)
         
+        # 如果设置为稳定版本，先取消其他版本的稳定标记
+        if is_stable:
+            self.db.execute('''
+                UPDATE version_snapshots SET is_stable = 0 WHERE is_stable = 1
+            ''')
+        
         self.db.execute('''
             INSERT OR REPLACE INTO version_snapshots 
             (version, package_path, md5_checksum, is_stable, created_at)
@@ -72,7 +78,7 @@ class VersionManager:
             datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         ))
         
-        logger.info(f"版本已注册: {version}, MD5: {md5}, 路径: {dest_path}")
+        logger.info(f"版本已注册: {version}, MD5: {md5}, 路径: {dest_path}, 稳定版本: {is_stable}")
         
         return {
             'version': version,
@@ -437,25 +443,15 @@ class GrayDeploymentEngine:
                 version, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), line
             ))
         
-        stable_version = self.version_manager.get_stable_version()
-        if stable_version and stable_version['version'] != version:
-            self.db.execute('''
-                UPDATE version_snapshots SET is_stable = 0 WHERE version = ?
-            ''', (stable_version['version'],))
-        
-        self.db.execute('''
-            UPDATE version_snapshots SET is_stable = 1 WHERE version = ?
-        ''', (version,))
-        
         result = {
             'request_id': request_id,
             'version': version,
             'status': 'FULL_DEPLOYED',
             'production_lines': all_lines,
-            'message': f'版本 {version} 已全量部署到所有产线，并标记为稳定版本'
+            'message': f'版本 {version} 已全量部署到所有产线'
         }
         
-        logger.info(f"版本 {version} 全量部署完成，已标记为稳定版本")
+        logger.info(f"版本 {version} 全量部署完成")
         return result
     
     @audit_operation(OperationType.VERSION_ROLLBACK, lambda *args, **kwargs: kwargs.get('operator', args[1] if len(args) > 1 else 'system'))

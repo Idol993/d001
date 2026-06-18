@@ -1,0 +1,69 @@
+{
+  "report_id": "WEEKLY-20260618-D6A2",
+  "report_period": "20260611-20260618",
+  "stats": {
+    "period": {
+      "start": "2026-06-11 00:00:00",
+      "end": "2026-06-18 23:59:59"
+    },
+    "total_releases": 1,
+    "successful_releases": 0,
+    "failed_releases": 1,
+    "publish_success_rate": 0.0,
+    "emergency_rollback_count": 1,
+    "avg_approval_duration_minutes": 0.02,
+    "risk_distribution": {
+      "L1_NORMAL": 1
+    },
+    "daily_releases": {
+      "2026-06-18": 1
+    },
+    "deployment_stages": {
+      "全量阶段": 2,
+      "半量阶段": 1,
+      "回滚": 1,
+      "扩展阶段": 1,
+      "试点阶段": 1
+    },
+    "releases": [
+      {
+        "id": 1,
+        "request_id": "REL_20260618172020_1781774420412",
+        "version": "MES_V2.5.1",
+        "risk_level": "L1_NORMAL",
+        "applicant": "张三",
+        "department": "研发部",
+        "description": "生产流程优化版本，提升OEE 5%",
+        "change_content": "1. 优化工单调度算法\n2. 新增质量统计报表\n3. 修复PLC数据采集延迟问题",
+        "status": "ROLLED_BACK",
+        "pre_check_result": "{\"passed\": true, \"start_time\": \"2026-06-18 17:20:21\", \"end_time\": \"2026-06-18 17:20:21\", \"results\": [{\"check_item\": \"test_coverage\", \"check_name\": \"自动化测试覆盖率\", \"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"unit_test_coverage\": \"93.53%\", \"integration_test_coverage\": \"81.89%\", \"min_unit_test_coverage\": \"85.0%\", \"min_integration_test_coverage\": \"70.0%\", \"total_test_count\": 889, \"pass_rate\": \"98.92%\", \"failed_tests\": 0, \"message\": \"单元测试覆盖率 93.53%，集成测试覆盖率 81.89%，达标\"}, \"check_time\": \"2026-06-18 17:20:21\"}, {\"check_item\": \"code_security\", \"check_name\": \"代码安全合规审查\", \"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"critical_vulnerabilities\": 0, \"major_vulnerabilities\": 2, \"minor_vulnerabilities\": 4, \"code_smells\": 46, \"duplication_rate\": \"4.1%\", \"security_rating\": \"A\", \"max_critical\": 0, \"max_major\": 3, \"message\": \"严重漏洞0个，主要漏洞2个，代码异味46个，重复率4.1%，符合安全标准\"}, \"check_time\": \"2026-06-18 17:20:21\"}, {\"check_item\": \"plc_interface\", \"check_name\": \"PLC设备接口检测\", \"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"total_devices\": 4, \"passed_devices\": 4, \"device_results\": [{\"device_name\": \"冲压车间PLC-01\", \"workshop\": \"冲压车间\", \"endpoint\": \"opc.tcp://192.168.1.101:4840\", \"connected\": true, \"latency_ms\": 24, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}, {\"device_name\": \"焊接车间PLC-02\", \"workshop\": \"焊接车间\", \"endpoint\": \"opc.tcp://192.168.1.102:4840\", \"connected\": true, \"latency_ms\": 42, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}, {\"device_name\": \"涂装车间PLC-03\", \"workshop\": \"涂装车间\", \"endpoint\": \"opc.tcp://192.168.1.103:4840\", \"connected\": true, \"latency_ms\": 22, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}, {\"device_name\": \"总装车间PLC-04\", \"workshop\": \"总装车间\", \"endpoint\": \"opc.tcp://192.168.1.104:4840\", \"connected\": true, \"latency_ms\": 35, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}], \"message\": \"4/4 个PLC设备接口检测全部正常\"}, \"check_time\": \"2026-06-18 17:20:21\"}, {\"check_item\": \"wms_system\", \"check_name\": \"WMS系统健康检查\", \"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"http_status_code\": 200, \"response_time_ms\": 110, \"system_status\": \"UP\", \"expected_status\": \"UP\", \"message_queue_connected\": true, \"dependencies\": [{\"name\": \"WMS API\", \"status\": \"UP\", \"response_time_ms\": 110}, {\"name\": \"消息队列\", \"status\": \"UP\"}, {\"name\": \"数据库连接池\", \"status\": \"UP\", \"active_connections\": 13}], \"message\": \"WMS系统状态: UP, 响应时间: 110ms, MQ连接: 正常，依赖系统健康\"}, \"check_time\": \"2026-06-18 17:20:21\"}], \"test_coverage\": {\"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"unit_test_coverage\": \"93.53%\", \"integration_test_coverage\": \"81.89%\", \"min_unit_test_coverage\": \"85.0%\", \"min_integration_test_coverage\": \"70.0%\", \"total_test_count\": 889, \"pass_rate\": \"98.92%\", \"failed_tests\": 0, \"message\": \"单元测试覆盖率 93.53%，集成测试覆盖率 81.89%，达标\"}, \"check_name\": \"自动化测试覆盖率\", \"check_time\": \"2026-06-18 17:20:21\"}, \"code_security\": {\"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"critical_vulnerabilities\": 0, \"major_vulnerabilities\": 2, \"minor_vulnerabilities\": 4, \"code_smells\": 46, \"duplication_rate\": \"4.1%\", \"security_rating\": \"A\", \"max_critical\": 0, \"max_major\": 3, \"message\": \"严重漏洞0个，主要漏洞2个，代码异味46个，重复率4.1%，符合安全标准\"}, \"check_name\": \"代码安全合规审查\", \"check_time\": \"2026-06-18 17:20:21\"}, \"plc_interface\": {\"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"total_devices\": 4, \"passed_devices\": 4, \"device_results\": [{\"device_name\": \"冲压车间PLC-01\", \"workshop\": \"冲压车间\", \"endpoint\": \"opc.tcp://192.168.1.101:4840\", \"connected\": true, \"latency_ms\": 24, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}, {\"device_name\": \"焊接车间PLC-02\", \"workshop\": \"焊接车间\", \"endpoint\": \"opc.tcp://192.168.1.102:4840\", \"connected\": true, \"latency_ms\": 42, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}, {\"device_name\": \"涂装车间PLC-03\", \"workshop\": \"涂装车间\", \"endpoint\": \"opc.tcp://192.168.1.103:4840\", \"connected\": true, \"latency_ms\": 22, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}, {\"device_name\": \"总装车间PLC-04\", \"workshop\": \"总装车间\", \"endpoint\": \"opc.tcp://192.168.1.104:4840\", \"connected\": true, \"latency_ms\": 35, \"test_tag\": \"ns=2;s=Production.Line1.Status\", \"read_value\": \"RUNNING\", \"expected_value\": \"RUNNING\", \"passed\": true}], \"message\": \"4/4 个PLC设备接口检测全部正常\"}, \"check_name\": \"PLC设备接口检测\", \"check_time\": \"2026-06-18 17:20:21\"}, \"wms_system\": {\"passed\": true, \"detail\": {\"version\": \"MES_V2.5.1\", \"http_status_code\": 200, \"response_time_ms\": 110, \"system_status\": \"UP\", \"expected_status\": \"UP\", \"message_queue_connected\": true, \"dependencies\": [{\"name\": \"WMS API\", \"status\": \"UP\", \"response_time_ms\": 110}, {\"name\": \"消息队列\", \"status\": \"UP\"}, {\"name\": \"数据库连接池\", \"status\": \"UP\", \"active_connections\": 13}], \"message\": \"WMS系统状态: UP, 响应时间: 110ms, MQ连接: 正常，依赖系统健康\"}, \"check_name\": \"WMS系统健康检查\", \"check_time\": \"2026-06-18 17:20:21\"}}",
+        "created_at": "2026-06-18 09:20:20",
+        "updated_at": "2026-06-18 17:20:30",
+        "target_production_lines": "[\"冲压车间-01号线\", \"冲压车间-02号线\", \"冲压车间-03号线\", \"焊接车间-01号线\", \"焊接车间-02号线\", \"涂装车间-01号线\"]"
+      }
+    ],
+    "rollbacks": [
+      {
+        "id": 1,
+        "request_id": "REL_20260618172020_1781774420412",
+        "rollback_reason": "监控指标超过阈值，触发自动回滚",
+        "from_version": "MES_V2.5.1",
+        "to_version": "MES_V2.5.1",
+        "affected_lines": "[\"冲压车间-01号线\", \"冲压车间-02号线\", \"冲压车间-03号线\", \"焊接车间-01号线\", \"焊接车间-02号线\", \"涂装车间-01号线\", \"涂装车间-02号线\", \"总装车间-01号线\", \"总装车间-02号线\", \"总装车间-03号线\", \"总装车间-04号线\"]",
+        "trigger_metrics": "{}",
+        "rollback_time": "2026-06-18 17:20:30",
+        "estimated_defect_count": 25,
+        "root_cause": "{\"primary_cause\": \"监控指标超过阈值，触发自动回滚\", \"contributing_factors\": [\"需要进一步分析日志定位具体原因\"], \"suggested_fixes\": []}"
+      }
+    ]
+  },
+  "chart_paths": {
+    "risk_distribution": "e:/work/d001/reports\\charts\\WEEKLY-20260618-D6A2_risk_distribution.png",
+    "daily_trend": "e:/work/d001/reports\\charts\\WEEKLY-20260618-D6A2_daily_trend.png",
+    "success_rate": "e:/work/d001/reports\\charts\\WEEKLY-20260618-D6A2_success_rate.png",
+    "metrics": "e:/work/d001/reports\\charts\\WEEKLY-20260618-D6A2_metrics.png"
+  },
+  "pdf_path": "e:/work/d001/reports\\WEEKLY-20260618-D6A2_week_report.pdf",
+  "excel_path": "e:/work/d001/reports\\WEEKLY-20260618-D6A2_release_history.xlsx",
+  "generated_at": "2026-06-18 17:20:43"
+}

@@ -1,0 +1,28 @@
+{
+  "report_id": "WEEKLY-20260618-251B",
+  "report_period": "20260611-20260618",
+  "stats": {
+    "period": {
+      "start": "2026-06-11 00:00:00",
+      "end": "2026-06-18 23:59:59"
+    },
+    "total_releases": 0,
+    "successful_releases": 0,
+    "failed_releases": 0,
+    "publish_success_rate": 100,
+    "emergency_rollback_count": 0,
+    "avg_approval_duration_minutes": 0,
+    "risk_distribution": {},
+    "daily_releases": {},
+    "deployment_stages": {},
+    "releases": [],
+    "rollbacks": []
+  },
+  "chart_paths": {
+    "success_rate": "e:/work/d001/reports\\charts\\WEEKLY-20260618-251B_success_rate.png",
+    "metrics": "e:/work/d001/reports\\charts\\WEEKLY-20260618-251B_metrics.png"
+  },
+  "pdf_path": "e:/work/d001/reports\\WEEKLY-20260618-251B_week_report.pdf",
+  "excel_path": "e:/work/d001/reports\\WEEKLY-20260618-251B_release_history.xlsx",
+  "generated_at": "2026-06-18 17:25:37"
+}

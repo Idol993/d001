@@ -4,7 +4,7 @@
 import json
 import hashlib
 import time
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional, List, Callable, Tuple
 from functools import wraps
 from datetime import datetime
 
@@ -90,8 +90,12 @@ class AuditLogger:
         
         return audit_id
     
-    def verify_chain(self) -> bool:
-        """验证哈希链完整性，检测日志是否被篡改"""
+    def verify_chain(self) -> Tuple[bool, str]:
+        """验证哈希链完整性，检测日志是否被篡改
+        
+        Returns:
+            (是否有效, 错误信息)
+        """
         db = get_db()
         records = db.query('''
             SELECT audit_id, operation_type, operator, request_params, 
@@ -107,17 +111,19 @@ class AuditLogger:
             calculated_hash = hashlib.sha256(data.encode('utf-8')).hexdigest()
             
             if calculated_hash != record['current_hash']:
-                logger.error(f"哈希链验证失败，审计记录 {record['audit_id']} 可能被篡改")
-                return False
+                error_msg = f"哈希链验证失败，审计记录 {record['audit_id']} 可能被篡改，当前哈希不匹配"
+                logger.error(error_msg)
+                return False, error_msg
             
             if record['previous_hash'] != expected_prev_hash:
-                logger.error(f"哈希链断裂，审计记录 {record['audit_id']} 前序哈希不匹配")
-                return False
+                error_msg = f"哈希链断裂，审计记录 {record['audit_id']} 前序哈希不匹配"
+                logger.error(error_msg)
+                return False, error_msg
             
             expected_prev_hash = record['current_hash']
         
         logger.info("审计日志哈希链完整性验证通过")
-        return True
+        return True, ""
     
     def query_logs(self, operation_type: OperationType = None, operator: str = None,
                    start_time: str = None, end_time: str = None,

@@ -4,11 +4,16 @@
 """
 import os
 import sys
+import io
 import time
 import json
 import argparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
+
+# 设置标准输出编码，解决 Windows 终端 emoji 显示问题
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
@@ -138,7 +143,8 @@ class MESReleaseSystem:
         self.version_manager.register_version(
             version=version,
             package_path=f"/data/mes/packages/{version}.tar.gz",
-            md5_checksum=self._generate_md5(version)
+            md5_checksum=self._generate_md5(version),
+            is_stable=False
         )
         
         logger.info(f"版本发布申请已提交: {request_id}")
